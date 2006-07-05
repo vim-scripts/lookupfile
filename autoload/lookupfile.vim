@@ -106,7 +106,7 @@ function! s:SetupBuf()
   setlocal wrapmargin=0
   setlocal textwidth=0
   if getline('.') == '' && s:lastPattern != '' &&
-        \ g:lookupfile_PreserveLastPattern
+        \ g:LookupFile_PreserveLastPattern
     call setline('$', s:lastPattern)
   endif
   startinsert!
@@ -133,7 +133,7 @@ function! s:SetupBuf()
 
   aug LookupFile
     au!
-    if g:lookupfile_ShowFiller
+    if g:LookupFile_ShowFiller
       au CursorMovedI <buffer> call <SID>ShowFiller()
     endif
     au CursorMovedI <buffer> call lookupfile#LookupFile(0)
@@ -141,7 +141,7 @@ function! s:SetupBuf()
 endfunction
 
 function! s:AddPattern()
-  if g:lookupfile_PreservePatternHistory
+  if g:LookupFile_PreservePatternHistory
     put! =s:lastPattern
     +
   endif
@@ -149,10 +149,10 @@ endfunction
 
 function! s:AcceptFile(splitWin, key)
   if pumvisible()
-    if type(g:lookupfile_LookupNotifyFunc) == 2 ||
-          \ (type(g:lookupfile_LookupNotifyFunc) == 1 &&
-          \  substitute(g:lookupfile_LookupNotifyFunc, '\s', '', 'g') != '')
-      call call(g:lookupfile_LookupNotifyFunc, [])
+    if type(g:LookupFile_LookupNotifyFunc) == 2 ||
+          \ (type(g:LookupFile_LookupNotifyFunc) == 1 &&
+          \  substitute(g:LookupFile_LookupNotifyFunc, '\s', '', 'g') != '')
+      call call(g:LookupFile_LookupNotifyFunc, [])
     endif
     " If there is only one file, we will also select it (if not already
     " selected)
@@ -193,7 +193,13 @@ function! s:OpenCurFile(splitWin)
     if &switchbuf ==# 'split' || a:splitWin
       split
     endif
-    exec 'edit' fileName
+    let bufnr = genutils#FindBufferForName(fileName)
+    if bufnr != -1
+      " Presever the cursor location.
+      exec 'buffer' bufnr
+    else
+      exec 'edit' fileName
+    endif
   endif
 endfunction
 
@@ -206,7 +212,7 @@ function! lookupfile#LookupFile(showingFiller)
   if pattern == "" || (pattern ==# s:lastPattern && pumvisible())
     return ""
   endif
-  if strlen(pattern) < g:lookupfile_MinPatLength
+  if strlen(pattern) < g:LookupFile_MinPatLength
     return ""
   endif
   " The normal completion behavior is to stop completion when cursor is moved.
@@ -225,14 +231,14 @@ function! lookupfile#LookupFile(showingFiller)
     let statusMsg = '<<< Looking up files... hit ^C to break >>>'
     let files = []
   else
-    if type(g:lookupfile_LookupFunc) == 2 ||
-          \ (type(g:lookupfile_LookupFunc) == 1 &&
-          \  substitute(g:lookupfile_LookupFunc, '\s', '', 'g') != '')
-      let files = call(g:lookupfile_LookupFunc, [pattern])
+    if type(g:LookupFile_LookupFunc) == 2 ||
+          \ (type(g:LookupFile_LookupFunc) == 1 &&
+          \  substitute(g:LookupFile_LookupFunc, '\s', '', 'g') != '')
+      let files = call(g:LookupFile_LookupFunc, [pattern])
     else
       let _tags = &tags
       try
-        let &tags = eval(g:lookupfile_TagExpr)
+        let &tags = eval(g:LookupFile_TagExpr)
         let tags = taglist(pattern)
       catch
         echohl ErrorMsg | echo "Exception: " . v:exception | echohl NONE
