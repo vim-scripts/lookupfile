@@ -9,11 +9,11 @@ set cpo&vim
 if !exists('s:myBufNum')
   let s:windowName = '[Lookup File]'
   let s:myBufNum = -1
-  let s:lastPattern = ""
-  let s:lastResults = []
 endif
+let g:lookupfile#lastPattern = ""
+let g:lookupfile#lastResults = []
 
-function! lookupfile#OpenWindow()
+function! lookupfile#OpenWindow(bang, initPat)
   let origWinnr = winnr()
   let _isf = &isfname
   let _splitbelow = &splitbelow
@@ -44,6 +44,15 @@ function! lookupfile#OpenWindow()
   endtry
 
   call s:SetupBuf()
+  if a:bang != ''
+    call setline('$', '')
+  elseif a:initPat != ''
+    call setline('$', a:initPat)
+  elseif getline('.') == '' && g:lookupfile#lastPattern != '' &&
+          \ g:LookupFile_PreserveLastPattern
+      call setline('$', g:lookupfile#lastPattern)
+  endif
+  startinsert!
   call s:LookupFileSet()
   aug LookupFileReset
     au!
@@ -69,8 +78,8 @@ function! lookupfile#CloseWindow()
 endfunction
 
 function! lookupfile#ClearCache()
-  let s:lastPattern = ""
-  let s:lastResults = []
+  let g:lookupfile#lastPattern = ""
+  let g:lookupfile#lastResults = []
 endfunction
 
 function! s:LookupFileSet()
@@ -100,16 +109,13 @@ endfunction
 function! s:SetupBuf()
   call genutils#SetupScratchBuffer()
   resize 1
-  setlocal nowrap
+  setlocal wrap
   setlocal bufhidden=hide
   setlocal winfixheight
   setlocal wrapmargin=0
   setlocal textwidth=0
-  if getline('.') == '' && s:lastPattern != '' &&
-        \ g:LookupFile_PreserveLastPattern
-    call setline('$', s:lastPattern)
-  endif
-  startinsert!
+  syn clear
+  set ft=lookupfile
   " Setup maps to open the file.
   inoremap <buffer> <expr> <CR> <SID>AcceptFile(0, "\<CR>")
   inoremap <buffer> <expr> <C-O> <SID>AcceptFile(1, "\<C-O>")
@@ -142,45 +148,76 @@ endfunction
 
 function! s:AddPattern()
   if g:LookupFile_PreservePatternHistory
-    put! =s:lastPattern
+    put! =g:lookupfile#lastPattern
     +
   endif
 endfunction
 
 function! s:AcceptFile(splitWin, key)
   if pumvisible()
-    if type(g:LookupFile_LookupNotifyFunc) == 2 ||
-          \ (type(g:LookupFile_LookupNotifyFunc) == 1 &&
-          \  substitute(g:LookupFile_LookupNotifyFunc, '\s', '', 'g') != '')
-      call call(g:LookupFile_LookupNotifyFunc, [])
-    endif
-    " If there is only one file, we will also select it (if not already
-    " selected)
-    let acceptCmd = "\<C-Y>\<Esc>:AddPattern\<CR>:OpenFile".(a:splitWin?'!':'').
-          \ "\<CR>"
-    if len(s:lastResults) == 1 && getline('.') ==# s:lastPattern
-      return "\<C-N>".acceptCmd
-    elseif getline('.') ==# s:lastPattern
-      return "\<C-N>"
+    let acceptCmd = ''
+    if type(g:LookupFile_LookupAcceptFunc) == 2 ||
+          \ (type(g:LookupFile_LookupAcceptFunc) == 1 &&
+          \  substitute(g:LookupFile_LookupAcceptFunc, '\s', '', 'g') != '')
+      let acceptCmd = call(g:LookupFile_LookupAcceptFunc, [a:splitWin, a:key])
     else
-      return acceptCmd
+      let acceptCmd = lookupfile#AcceptFile(a:splitWin, a:key)
     endif
+
+    return acceptCmd
   else
     return a:key
   endif
 endfunction
 
-function! s:OpenCurFile(splitWin)
+function! s:IsValid(fileName)
   if bufnr('%') != s:myBufNum
-    return
+    return 0
   endif
+  if a:fileName == ''
+    return 0
+  endif
+  if !filereadable(a:fileName) && !isdirectory(a:fileName)
+    return 0
+  endif
+  return 1
+endfunction
+
+function! lookupfile#AcceptFile(splitWin, key)
+  if len(g:lookupfile#lastResults) == 0 && !s:IsValid(getline('.'))
+    return "\<C-O>:echohl ErrorMsg | echo 'No such file or directory' | echohl NONE\<CR>"
+  endif
+
+  " Skip the first match, which is essentially the same as pattern.
+  let nextCmd = "\<C-N>\<C-R>=(getline('.') == lookupfile#lastPattern)?\"\\<C-N>\":''\<CR>\<C-R>=''\<CR>"
+  "let nextCmd = "\<C-N>\<C-R>=(getline('.') == lookupfile#lastPattern)?\"\\<C-N>\":''\<CR>\<C-O>:\<BS>"
+  let acceptCmd = "\<C-Y>\<Esc>:AddPattern\<CR>:OpenFile".(a:splitWin?'!':'').
+        \ "\<CR>:\<BS>"
+  if getline('.') ==# g:lookupfile#lastPattern
+    if len(g:lookupfile#lastResults) == 1 || g:LookupFile_AlwaysAcceptFirst
+      " If there is only one file, we will also select it (if not already
+      " selected)
+      let acceptCmd = nextCmd.acceptCmd
+    else
+      let acceptCmd = nextCmd
+    endif
+  endif
+
+  return acceptCmd
+endfunction
+
+function! s:OpenCurFile(splitWin)
   let fileName = getline('.')
-  if fileName == ''
+  if !s:IsValid(fileName)
+    echohl ErrorMsg | echo 'No such file or directory' | echohl NONE
     return
   endif
-  if !filereadable(fileName)
-    echohl ErrorMsg | echo "Can't read file: " . fileName | echohl NONE
-    return
+
+
+  if type(g:LookupFile_LookupNotifyFunc) == 2 ||
+        \ (type(g:LookupFile_LookupNotifyFunc) == 1 &&
+        \  substitute(g:LookupFile_LookupNotifyFunc, '\s', '', 'g') != '')
+    call call(g:LookupFile_LookupNotifyFunc, [])
   endif
 
   put=''
@@ -209,10 +246,7 @@ endfunction
 
 function! lookupfile#LookupFile(showingFiller)
   let pattern = getline('.')
-  if pattern == "" || (pattern ==# s:lastPattern && pumvisible())
-    return ""
-  endif
-  if strlen(pattern) < g:LookupFile_MinPatLength
+  if pattern == "" || (pattern ==# g:lookupfile#lastPattern && pumvisible())
     return ""
   endif
   " The normal completion behavior is to stop completion when cursor is moved.
@@ -220,11 +254,15 @@ function! lookupfile#LookupFile(showingFiller)
     return ""
   endif
 
-  " We ignore filler when we have the result in hand.
   let statusMsg = ''
-  if s:lastPattern ==# pattern
+  if strlen(pattern) < g:LookupFile_MinPatLength
+    let statusMsg = '<<< Type at least '.g:LookupFile_MinPatLength.
+          \ ' characters >>>'
+    let files = []
+  " We ignore filler when we have the result in hand.
+  elseif g:lookupfile#lastPattern ==# pattern
     " This helps at every startup as we start with the previous pattern.
-    let files = s:lastResults
+    let files = g:lookupfile#lastResults
   elseif a:showingFiller
     " Just show a filler and return. We could return this as the only match, but
     " unless 'completeopt' has "menuone", menu doesn't get shown.
@@ -250,15 +288,21 @@ function! lookupfile#LookupFile(showingFiller)
       " Show the matches for what is typed so far.
       let files = map(tags, 'v:val["filename"]')
     endif
+
+    let pat = g:LookupFile_FileFilter
+    if pat != ''
+      call filter(files, '(type(v:val) == 4) ? v:val["word"] !~ pat : v:val !~ pat')
+    endif
+
     call sort(files)
-    let s:lastPattern = pattern
-    let s:lastResults = files
+    let g:lookupfile#lastPattern = pattern
+    let g:lookupfile#lastResults = files
   endif
   if statusMsg == ''
     if len(files) > 0
-      let statusMsg = '<<< '.len(files).' Matches >>>'
+      let statusMsg = '<<< '.len(files).' Matching >>>'
     else
-      let statusMsg = '<<< No Matches >>>'
+      let statusMsg = '<<< None Matching >>>'
     endif
   endif
   let abbr = pattern

@@ -1,9 +1,9 @@
 " lookupfile.vim: Lookup filenames by pattern
 " Author: Hari Krishna (hari_vim at yahoo dot com)
-" Last Change: 05-Jul-2006 @ 12:00
+" Last Change: 15-Aug-2006 @ 23:28
 " Created:     11-May-2006
 " Requires:    Vim-7.0, genutils.vim(1.2)
-" Version:     1.1.1
+" Version:     1.2.6
 " Licence: This program is free software; you can redistribute it and/or
 "          modify it under the terms of the GNU General Public License.
 "          See http://www.gnu.org/copyleft/gpl.txt 
@@ -49,6 +49,12 @@ if !exists('g:LookupFile_LookupNotifyFunc')
   let g:LookupFile_LookupNotifyFunc = ''
 endif
 
+if !exists('g:LookupFile_LookupAcceptFunc')
+  " The function that should be notified when user presses <Enter>. This is
+  " like handling the selection yourself.
+  let g:LookupFile_LookupAcceptFunc = ''
+endif
+
 if !exists('g:LookupFile_MinPatLength')
   " Min. length of the pattern to trigger lookup.
   let g:LookupFile_MinPatLength = 4
@@ -69,6 +75,18 @@ if !exists('g:LookupFile_ShowFiller')
   let g:LookupFile_ShowFiller = 1
 endif
 
+if !exists('g:LookupFile_AlwaysAcceptFirst')
+  " Pressing <CR> or <C-O> when popup is visible always accepts the first
+  " entry.
+  let g:LookupFile_AlwaysAcceptFirst = 0
+endif
+
+if !exists('g:LookupFile_FileFilter')
+  " A regular expression, which when matched against the result is filtered
+  " out.
+  let g:LookupFile_FileFilter = ''
+endif
+
 if (! exists("no_plugin_maps") || ! no_plugin_maps) &&
       \ (! exists("no_lookupfile_maps") || ! no_lookupfile_maps)
   noremap <script> <silent> <Plug>LookupFile :LookupFile<CR>
@@ -81,11 +99,12 @@ if (! exists("no_plugin_maps") || ! no_plugin_maps) &&
   endif
 endif
 
-command! LookupFile :call lookupfile#OpenWindow()
+command! -nargs=? -bang -complete=file LookupFile :call lookupfile#OpenWindow("<bang>", <q-args>)
 
-command! LUPath :call <SID>LookupUsing(s:SNR().'LookupPath')
-command! LUBuf :call <SID>LookupUsing(s:SNR().'LookupBuf')
-command! LUArgs :call <SID>LookupUsing(s:SNR().'LookupArgs')
+command! -nargs=? -bang -complete=file LUPath :call <SID>LookupUsing("<bang>", <q-args>, s:SNR().'LookupPath', g:LookupFile_MinPatLength)
+command! -nargs=? -bang -complete=file LUArgs :call <SID>LookupUsing("<bang>", <q-args>, s:SNR().'LookupArgs', 0)
+command! -nargs=? -bang -complete=file LUBufs :call <SID>LookupUsing("<bang>", <q-args>, s:SNR().'LookupBuf', 0) | call <SID>ConfigIdo('buffer')
+command! -nargs=? -bang -complete=dir LUWalk :call <SID>LookupUsing("<bang>", <q-args>, s:SNR().'LookupIdo', 0) | call <SID>ConfigIdo('file')
 
 let s:mySNR = ''
 function s:SNR()
@@ -95,21 +114,58 @@ function s:SNR()
   return s:mySNR
 endfun
 
-function! s:LookupUsing(func)
-  unlet! s:SavedLookupFunc s:SavedLookupNotifyFunc
-  let s:SavedLookupFunc = g:LookupFile_LookupFunc
-  let s:SavedLookupNotifyFunc = g:LookupFile_LookupNotifyFunc
-  unlet g:LookupFile_LookupFunc g:LookupFile_LookupNotifyFunc
+let s:baseBufNr = 0
+function! s:LookupUsing(bang, initPat, func, minPatLen)
+  call s:SaveSett('LookupFunc')
+  call s:SaveSett('LookupNotifyFunc')
+  call s:SaveSett('MinPatLength')
+  unlet! g:LookupFile_LookupFunc g:LookupFile_LookupNotifyFunc
   let g:LookupFile_LookupFunc = function(a:func)
   let g:LookupFile_LookupNotifyFunc = function(s:SNR().'LookupReset')
-  LookupFile
+  let g:LookupFile_MinPatLength = a:minPatLen
+  let s:baseBufNr = bufnr('%')
+  exec 'LookupFile'.a:bang a:initPat
 endfunction
 
 function! s:LookupReset()
-  if exists('s:SavedLookupFunc')
-    unlet g:LookupFile_LookupFunc g:LookupFile_LookupNotifyFunc
-    let g:LookupFile_LookupFunc = s:SavedLookupFunc
-    let g:LookupFile_LookupNotifyFunc = s:SavedLookupNotifyFunc
+  if exists('s:saved')
+    for sett in keys(s:saved)
+      unlet! g:LookupFile_{sett}
+      let g:LookupFile_{sett} = s:saved[sett]
+    endfor
+    unlet s:saved
+  endif
+  if exists('s:cleanup')
+    for cmd in s:cleanup
+      try
+        exec cmd
+      catch
+        echoerr v:exception . ', while executing cleanup command: ' . cmd
+      endtry
+    endfor
+    unlet s:cleanup
+  endif
+  aug ConfigIdo
+    au!
+  aug END
+endfunction
+
+function! s:SaveSett(sett)
+  if !exists('s:saved')
+    let s:saved = {}
+  endif
+  " Avoid overwriting the original value.
+  if !has_key(s:saved, a:sett)
+    let s:saved[a:sett] = g:LookupFile_{a:sett}
+  endif
+endfunction
+
+function! s:AddCleanup(cmd)
+  if !exists('s:cleanup')
+    let s:cleanup = []
+  endif
+  if index(s:cleanup, a:cmd) == -1
+    call add(s:cleanup, a:cmd)
   endif
 endfunction
 
@@ -121,7 +177,8 @@ endfunction
 function! s:LookupBuf(pattern)
   let results = []
   let i = 1
-  while i <= bufnr('$')
+  let lastBufNr = bufnr('$')
+  while i <= lastBufNr
     if bufexists(i) && fnamemodify(bufname(i), ':p:t') =~ a:pattern
       call add(results, bufname(i))
     endif
@@ -132,6 +189,112 @@ endfunction
 
 function! s:LookupArgs(pattern)
   return filter(argv(), 'v:val =~ a:pattern')
+endfunction
+
+function! s:LookupIdo(pattern)
+  " Determine the parent dir.
+  let parent = matchstr(a:pattern, '^.*/')
+  let pattern = strpart(a:pattern, len(parent))
+  if pattern == '*'
+    " Otherwise, it would become '***' resulting in a recursive search.
+    let pattern = ''
+  endif
+  "exec BPBreak(1)
+  let _shellslash = &shellslash
+  set shellslash
+  try
+    let files = glob(parent.((pattern != '') ? '*'.pattern.'*' : '*'))
+  finally
+    let &shellslash = _shellslash
+  endtry
+  let fl = split(files, "\<NL>")
+  let entries = []
+  for f in fl
+    let suffx = isdirectory(f)?'/':''
+    let word = f.suffx
+    let fname = matchstr(f, '[^/]*$')
+    call add(entries, {
+          \ 'word': word,
+          \ 'abbr': fname.suffx,
+          \ 'menu': (pattern!='') ? substitute(fname, '\V'.pattern, '[&]', '') : pattern,
+          \ 'kind': suffx,
+          \ })
+  endfor
+  return entries
+endfunction
+
+function! s:ConfigIdo(mode)
+  if a:mode == 'buffer'
+    " Allow switching to file mode.
+    inoremap <expr> <buffer> <C-F> <SID>IdoSwitchTo('file')
+    call s:AddCleanup('iunmap <buffer> <C-F>')
+  else
+    call s:SaveSett('LookupAcceptFunc')
+    unlet! g:LookupFile_LookupAcceptFunc
+    let g:LookupFile_LookupAcceptFunc = function(s:SNR().'IdoAccept')
+    " Make sure we have the right slashes, in case user passed in init path
+    " with wrong slashes.
+    call setline('.', substitute(getline('.'), '\\', '/', 'g'))
+
+    inoremap <buffer> <expr> <BS> <SID>IdoBS()
+    call s:AddCleanup('iunmap <buffer> <BS>')
+    imap <buffer> <expr> <Tab> <SID>IdoTab()
+    call s:AddCleanup('iunmap <buffer> <Tab>')
+    inoremap <expr> <buffer> <C-B> <SID>IdoSwitchTo('buffer')
+    call s:AddCleanup('iunmap <buffer> <C-B>')
+  endif
+  aug ConfigIdo
+    au!
+    au BufHidden <buffer> call <SID>LookupReset()
+  aug END
+endfunction
+
+function! s:IdoSwitchTo(mode)
+  call s:LookupReset()
+  if a:mode == 'buffer'
+    let tok = matchstr(getline('.'), '[^/]*$')
+    let cmd = 'LUBufs'.(tok == "" ? '!' : ' '.tok)
+  else
+    let cmd = 'LUWalk '.s:GetDefDir().getline('.')
+  endif
+  return (pumvisible()?"\<C-E>":'')."\<Esc>:".cmd."\<CR>"
+endfunction
+
+function! s:IdoAccept(splitWin, key)
+  let refreshCmd = "\<C-O>:call lookupfile#LookupFile(0)\<CR>\<C-O>:\<BS>"
+  if getline('.') !=# g:lookupfile#lastPattern && getline('.')[strlen(getline('.'))-1] == '/'
+    return refreshCmd
+  elseif len(g:lookupfile#lastResults) > 0 && g:lookupfile#lastResults[0]['kind'] == '/'
+    " When the first entry is a directory, accept it, and trigger a fresh
+    " completion on that.
+    return "\<C-N>".refreshCmd
+  endif
+  return lookupfile#AcceptFile(a:splitWin, a:key)
+endfunction
+
+function! s:IdoBS()
+  if !pumvisible()
+    return "\<BS>"
+  elseif getline('.') !~ '/$'
+    return "\<C-E>\<BS>"
+  else
+    " Determine the number of <BS>'s required to remove the patch component.
+    let lastComp = matchstr(getline('.'), '[^/]*/$')
+    return "\<C-E>".repeat("\<BS>", strlen(lastComp))
+  endif
+endfunction
+
+function! s:IdoTab()
+  " When no pattern yet, fill up with current directory.
+  if !pumvisible() && getline('.') == ''
+    return s:GetDefDir()
+  else
+    return "\<Tab>"
+  endif
+endfunction
+
+function! s:GetDefDir()
+  return substitute(expand('#'.s:baseBufNr.':p:h'), '\\', '/', 'g').'/'
 endfunction
 
 " Restore cpo.

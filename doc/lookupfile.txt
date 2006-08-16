@@ -1,8 +1,8 @@
 *lookupfile.txt* Lookup files using filename completion
                     Requires Vim 7.0
-            Last Change: 03-Jul-2006 @ 18:32
-               Revision: 1.1.0
-         Plugin Version: 1.1
+            Last Change: 11-Aug-2006 @ 18:07
+               Revision: 1.2.0
+         Plugin Version: 1.2
                  Author: Hari Krishna Dara (hari_vim at yahoo dot com)
 
                                             *lookupfile-introduction*
@@ -80,8 +80,30 @@ below table lists them:
 
         Command         Lookup source ~
         LUPath          Lookup files from 'path' using |globpath()|.
-        LUBuf           Lookup loaded files (buffers) using |bufname()|.
+        LUBufs          Lookup loaded files (buffers) using |bufname()|.
         LUArgs          Lookup files from |:args|.
+        LUWalk          Lookup files using |glob()|. This works like the Emacs
+                        ido.el, allowing you to walk a path.
+
+
+The :LookupFile and all the above commands accept an argument which is treated
+as the initial pattern. Specify a bang(!) after the command to always start with
+an empty line.
+
+                                            *lookupfile-ido*
+                                            *lookupfile-walk-path*
+                                            *lookupfile-LUWalk*
+                                            *lookupfile-LUBufs*
+The LUWalk and LUBufs commands are special in that they provide features that
+will be very fimilar to those who used Emacs ido.el lisp package. The LUWalk
+command is very useful to quickly navigate or "walk" path structures. The plugin
+provides a popup with matches for each path component as you type in a partial
+string. The matches are based on the Vim |glob()| expression rules.
+
+You can switch from file lookup to buffer lookup using <C-B> and from buffer
+lookup to file lookup using <C-F> while in insert mode. To accept the first
+entry in the matches, you can simply press <CR> or <C-O>, and if the entry
+happens to be a directory, new matches will be shown for that directory.
 
                                             *lookupfile-maps*
 The maps that are available in the [Lookup File] window are listed below. Some
@@ -156,11 +178,23 @@ you fine tune the g:LookupFile_TagExpr setting, as per |lookupfile-tags|.
   will be called with one argument, which is the pattern typed so far. The
   results will be sorted by the plugin anyway, so your function need not.
   You can also set g:LookupFile_LookupNotifyFunc to be notified when a
-  file is selected from the matches (not called with o or O commands).
+  file is selected from the matches (not called with o or O commands), and
+  g:LookupFile_LookupAcceptFunc to override the default handling of selection.
 - If you have 'switchbuf' set to "split" for your quickfix commands to
   always split open windows, the plugin recognizes this setting and split-opens
   all files.
+- Normally when <CR> or <C-O> is pressed while the popup is visible, the first
+  item in the list is selected, unless there is exactly only one item matching.
+  This means, if you want to select the first item, you have press it twice. You
+  can change this behavior to always accept the first item by setting
+  g:LookupFile_AlwaysAcceptFirst (like ido.el).
+- Use the g:LookupFile_FileFilter to specify a Vim regular expression pattern
+  that, when matched against the filename (or path, depending on the mode)
+  results in filtered out. E.x: >
 
+    " Don't display binary files
+    let g:LookupFile_FileFilter = '\.class$\|\.o$\|\.obj$\|\.exe$\|\.jar$\|\.zip$\|\.war$\|\.ear$'
+<
                                             *lookupfile-extend*
 If you want to extend the functionality of the plugin, by creating new commands
 to lookup files in different ways, you can take advantage of the
@@ -194,6 +228,24 @@ Once you follow the above steps, you can use both the default LookupFile command
 as well as the new MyLookup command. The completion will behave differently
 based on how you opened the lookup window.
 
+You can also override the default action when the user presses <CR> or <C-O> to
+get your function invoked, by setting the g:LookupFile_LookupAcceptFunc. The
+function should have the below signature: >
+
+    " splitWin is 1 if a new window should be split.
+    " key is the exact key that user pressed ("\<CR>"/"\<C-O>").
+    function accept(splitWin, key)
+<
+The last pattern and the matching results for it are accessible in the global
+variables g:lookupfile#lastPattern and g:lookupfile#lastResults.
+
+You can also create ftplugin/lookupfile.vim in your vim runtime and put commands
+to further customize or override the behavior of the plugin. E.g., you could put
+a map such that pressing <Esc> twice in succession will close the window: >
+
+    nnoremap <buffer> <Esc><Esc> <C-W>q
+    inoremap <buffer> <Esc><Esc> <Esc><C-W>q
+<
                                             *lookupfile-tips*
 - A pattern is a Vim regex, so you can e.g., start with an "^" to anchor the
   pattern match to the start of the filename. This will also speed up the
@@ -233,7 +285,34 @@ based on how you opened the lookup window.
         (echo "!_TAG_FILE_SORTED	2	/2=foldcase/";
         find . -type d -printf "%f\t%p\t1\n") | \
         sort -f > ./dirnametags
+- You can create custom commands/mappings that always start with a fixed or
+  computed pattern. E.g., to always start LUWalk in the root of c: drive, create
+  a command as: >
+
+        command! WalkRoot LUWalk c:/
 <
+  Another useful variation of the above is to start with the directory of the
+  current file: >
+
+        command! WalkCur :exec "LUWalk" expand('%:p:h').'/'
+<
+  Another example that works well with :LookupFile is to start with the current
+  word as pattern: >
+
+        command! CurWord :LookupFile <cword>
+<
+- The :LUWalk command maps your <BS> key such that it will remove a complete
+  directory component at a time (like ido.el). To remove only a part of the
+  directory name, first press <C-W> to remove the "/" and use <BS> to remove the
+  required number characters. You can also press <Esc> and use normal commands
+  to edit.
+- While using :LUWalk, when no pattern is entered yet, you can press <Tab> to
+  show the files in the directory of the current buffer.
+- While using :LUWalk, you can enter "**" after any directory in the path to
+  match keyword recursively under that path.
+- If you want to extend the funcationality of the plugin, take a look at the
+  plugin/lookupfile.vim for various examples.
+
                                             *lookupfile-known-issues*
 - Vim sometimes automatically replaces the pattern with the first filename
   from the completion menu. You have to select back the original pattern using
@@ -249,11 +328,9 @@ based on how you opened the lookup window.
                                             *lookupfile-todo*
 - Allow on the fly filtering of the filenames by prompting the user for a
   pattern to match (or not match) against the whole filename.
-- Option to sort filenames by their extension, or plain filename (no path).
-- Allow passing in a pattern for the [Lookup File] window to start with. We can
-  then create maps that can use the <cword> on any buffer to lookup files.
-- "OpenExisting" option to open an existing buffer/window (possibly switching to
-  the right tab).
+- Option to sort filenames by their extension, or by MRU.
+- "ReuseExisting" option to switch to an existing window (possibly switching to
+  the right tab). This works like "find window in all the tabs".
 
                                             *lookupfile-acknowledgements*
 - Max Dyckhoff (maxd at microsoft dot com) for beta testing and reporting
@@ -261,8 +338,26 @@ based on how you opened the lookup window.
   more stable, thanks to him.
   I would also like to specially thank him for proof reading the first version
   of this documentation.
+- Eddy Zhao (eddy dot y dot zhao at gmail dot com> for suggesting several
+  improvements on the lines of emacs ido.el and rigorously testing them. The
+  LUWalk command is the result of this.
 
                                             *lookupfile-changes*
+
+                                            *lookupfile-changes-1.2*
+- g:LookupFile_AlwaysAcceptFirst setting to always accept the first
+  entry (the default is 0).
+- g:LookupFile_FileFilter to specify a filter.
+- New LUWalk command that works very similar to Emacs ido.el to quickly navigate
+  paths.
+- All commands now accepts the initial directory as argument. This provides
+  unlimited number of possibilities to create your own custom commands (see
+  |lookupfile-tips| for some examples).
+- The g:LookupFile_MinPatLength is automatically set to 0 except for tag and
+  'path' lookup.
+- When Lookup window is opened, the filetype is set to "lookupfile". This allows
+  you to create ftplugins to fine tune the behavior.
+- Renamed :LUBuf command to :LUBufs.
 
                                             *lookupfile-changes-1.1*
 - Added LUBuf and LUPath commands.
