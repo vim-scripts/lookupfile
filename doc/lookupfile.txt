@@ -1,8 +1,8 @@
 *lookupfile.txt* Lookup files using filename completion
                     Requires Vim 7.0
-            Last Change: 11-Aug-2006 @ 18:07
+            Last Change: 20-Aug-2006 @ 20:17
                Revision: 1.2.0
-         Plugin Version: 1.2
+         Plugin Version: 1.3
                  Author: Hari Krishna Dara (hari_vim at yahoo dot com)
 
                                             *lookupfile-introduction*
@@ -195,6 +195,11 @@ you fine tune the g:LookupFile_TagExpr setting, as per |lookupfile-tags|.
     " Don't display binary files
     let g:LookupFile_FileFilter = '\.class$\|\.o$\|\.obj$\|\.exe$\|\.jar$\|\.zip$\|\.war$\|\.ear$'
 <
+- Use the g:LookupFile_AllowNewFiles to specify whether entering non-existent
+  files should generate an error or result in getting a new buffer created.
+- When using LUWalk, if the first entry in the matches is a directory, it could
+  result in a misbehavior.
+
                                             *lookupfile-extend*
 If you want to extend the functionality of the plugin, by creating new commands
 to lookup files in different ways, you can take advantage of the
@@ -344,13 +349,19 @@ a map such that pressing <Esc> twice in succession will close the window: >
 
                                             *lookupfile-changes*
 
+                                            *lookupfile-changes-1.3*
+- New feature to create a file, if the file doesn't already exist (Ido). Can be
+  disabled using g:LookupFile_AllowNewFiles setting.
+- Bug fix: while using LUWalk, if the first match is a directory, then selecting
+  files was offset by one.
+
                                             *lookupfile-changes-1.2*
 - g:LookupFile_AlwaysAcceptFirst setting to always accept the first
   entry (the default is 0).
 - g:LookupFile_FileFilter to specify a filter.
 - New LUWalk command that works very similar to Emacs ido.el to quickly navigate
   paths.
-- All commands now accepts the initial directory as argument. This provides
+- All commands now accepts the initial pattern as argument. This provides
   unlimited number of possibilities to create your own custom commands (see
   |lookupfile-tips| for some examples).
 - The g:LookupFile_MinPatLength is automatically set to 0 except for tag and

@@ -1,9 +1,9 @@
 " lookupfile.vim: Lookup filenames by pattern
 " Author: Hari Krishna (hari_vim at yahoo dot com)
-" Last Change: 15-Aug-2006 @ 23:28
+" Last Change: 20-Aug-2006 @ 19:32
 " Created:     11-May-2006
 " Requires:    Vim-7.0, genutils.vim(1.2)
-" Version:     1.2.6
+" Version:     1.3.0
 " Licence: This program is free software; you can redistribute it and/or
 "          modify it under the terms of the GNU General Public License.
 "          See http://www.gnu.org/copyleft/gpl.txt 
@@ -87,6 +87,12 @@ if !exists('g:LookupFile_FileFilter')
   let g:LookupFile_FileFilter = ''
 endif
 
+if !exists('g:LookupFile_AllowNewFiles')
+  " If set, entering a non-existing filename will allow the plugin to create a
+  " new buffer for it.
+  let g:LookupFile_AllowNewFiles = 1
+endif
+
 if (! exists("no_plugin_maps") || ! no_plugin_maps) &&
       \ (! exists("no_lookupfile_maps") || ! no_lookupfile_maps)
   noremap <script> <silent> <Plug>LookupFile :LookupFile<CR>
@@ -107,7 +113,7 @@ command! -nargs=? -bang -complete=file LUBufs :call <SID>LookupUsing("<bang>", <
 command! -nargs=? -bang -complete=dir LUWalk :call <SID>LookupUsing("<bang>", <q-args>, s:SNR().'LookupIdo', 0) | call <SID>ConfigIdo('file')
 
 let s:mySNR = ''
-function s:SNR()
+function! s:SNR()
   if s:mySNR == ''
     let s:mySNR = matchstr(expand('<sfile>'), '<SNR>\d\+_\zeSNR$')
   endif
@@ -264,10 +270,12 @@ function! s:IdoAccept(splitWin, key)
   let refreshCmd = "\<C-O>:call lookupfile#LookupFile(0)\<CR>\<C-O>:\<BS>"
   if getline('.') !=# g:lookupfile#lastPattern && getline('.')[strlen(getline('.'))-1] == '/'
     return refreshCmd
-  elseif len(g:lookupfile#lastResults) > 0 && g:lookupfile#lastResults[0]['kind'] == '/'
+  elseif getline('.') ==# g:lookupfile#lastPattern
+        \ && len(g:lookupfile#lastResults) > 0
+        \ && g:lookupfile#lastResults[0]['kind'] == '/'
     " When the first entry is a directory, accept it, and trigger a fresh
     " completion on that.
-    return "\<C-N>".refreshCmd
+    return "\<C-N>\<C-R>=(getline('.') == lookupfile#lastPattern)?\"\\<C-N>\":''\<CR>".refreshCmd
   endif
   return lookupfile#AcceptFile(a:splitWin, a:key)
 endfunction

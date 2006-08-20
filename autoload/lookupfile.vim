@@ -117,8 +117,8 @@ function! s:SetupBuf()
   syn clear
   set ft=lookupfile
   " Setup maps to open the file.
-  inoremap <buffer> <expr> <CR> <SID>AcceptFile(0, "\<CR>")
-  inoremap <buffer> <expr> <C-O> <SID>AcceptFile(1, "\<C-O>")
+  inoremap <silent> <buffer> <expr> <CR> <SID>AcceptFile(0, "\<CR>")
+  inoremap <silent> <buffer> <expr> <C-O> <SID>AcceptFile(1, "\<C-O>")
   " This prevents the "Whole line completion" from getting triggered with <BS>,
   " however this might make the dropdown kind of flash.
   inoremap <buffer> <expr> <BS>       pumvisible()?"\<C-E>\<BS>":"\<BS>"
@@ -148,7 +148,7 @@ endfunction
 
 function! s:AddPattern()
   if g:LookupFile_PreservePatternHistory
-    put! =g:lookupfile#lastPattern
+    silent! put! =g:lookupfile#lastPattern
     +
   endif
 endfunction
@@ -178,7 +178,14 @@ function! s:IsValid(fileName)
     return 0
   endif
   if !filereadable(a:fileName) && !isdirectory(a:fileName)
-    return 0
+    if g:LookupFile_AllowNewFiles
+      " Check if the parent directory exists, then we can create a new buffer
+      " (Ido feature)
+      let parent = fnamemodify(a:fileName, ':h')
+      if parent != '' && !isdirectory(parent)
+        return 0
+      endif
+    endif
   endif
   return 1
 endfunction
@@ -189,12 +196,13 @@ function! lookupfile#AcceptFile(splitWin, key)
   endif
 
   " Skip the first match, which is essentially the same as pattern.
-  let nextCmd = "\<C-N>\<C-R>=(getline('.') == lookupfile#lastPattern)?\"\\<C-N>\":''\<CR>\<C-R>=''\<CR>"
-  "let nextCmd = "\<C-N>\<C-R>=(getline('.') == lookupfile#lastPattern)?\"\\<C-N>\":''\<CR>\<C-O>:\<BS>"
+  let nextCmd = "\<C-N>\<C-R>=(getline('.') == lookupfile#lastPattern)?\"\\<C-N>\":''\<CR>"
   let acceptCmd = "\<C-Y>\<Esc>:AddPattern\<CR>:OpenFile".(a:splitWin?'!':'').
-        \ "\<CR>:\<BS>"
+        \ "\<CR>"
   if getline('.') ==# g:lookupfile#lastPattern
-    if len(g:lookupfile#lastResults) == 1 || g:LookupFile_AlwaysAcceptFirst
+    if len(g:lookupfile#lastResults) == 0
+      let acceptCmd = acceptCmd
+    elseif len(g:lookupfile#lastResults) == 1 || g:LookupFile_AlwaysAcceptFirst
       " If there is only one file, we will also select it (if not already
       " selected)
       let acceptCmd = nextCmd.acceptCmd
@@ -208,11 +216,12 @@ endfunction
 
 function! s:OpenCurFile(splitWin)
   let fileName = getline('.')
-  if !s:IsValid(fileName)
-    echohl ErrorMsg | echo 'No such file or directory' | echohl NONE
+  if fileName =~ '^\s*$'
     return
   endif
-
+  if !s:IsValid(fileName)
+    echohl ErrorMsg | echo 'No such file or directory' | echohl NONE
+  endif
 
   if type(g:LookupFile_LookupNotifyFunc) == 2 ||
         \ (type(g:LookupFile_LookupNotifyFunc) == 1 &&
@@ -220,7 +229,7 @@ function! s:OpenCurFile(splitWin)
     call call(g:LookupFile_LookupNotifyFunc, [])
   endif
 
-  put=''
+  silent! put=''
   call lookupfile#CloseWindow()
 
   let winnr = bufwinnr(fileName)
