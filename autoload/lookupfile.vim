@@ -44,13 +44,18 @@ function! lookupfile#OpenWindow(bang, initPat)
   endtry
 
   call s:SetupBuf()
+  let initPat = ''
   if a:bang != ''
-    call setline('$', '')
+    let initPat = ''
   elseif a:initPat != ''
-    call setline('$', a:initPat)
-  elseif getline('.') == '' && g:lookupfile#lastPattern != '' &&
-          \ g:LookupFile_PreserveLastPattern
-      call setline('$', g:lookupfile#lastPattern)
+    let initPat = a:initPat
+  elseif g:lookupfile#lastPattern != '' && g:LookupFile_PreserveLastPattern
+    let initPat = g:lookupfile#lastPattern
+  endif
+  $
+  if getline('.') !=# initPat
+    silent! put=''
+    call setline('.', initPat)
   endif
   startinsert!
   call s:LookupFileSet()
@@ -125,8 +130,8 @@ function! s:SetupBuf()
   " Make <C-Y> behave just like <CR>
   imap     <buffer> <expr> <C-Y>      pumvisible()?"\<CR>":"\<C-Y>"
   inoremap <buffer> <expr> <Esc>      pumvisible()?"\<C-E>\<C-C>":"\<Esc>"
-  inoremap <buffer> <expr> <Down>     pumvisible()?"\<C-N>":"\<Down>"
-  inoremap <buffer> <expr> <Up>       pumvisible()?"\<C-P>":"\<Up>"
+  inoremap <buffer> <expr> <silent> <Down> pumvisible()?"\<C-N>\<C-R>=(getline('.') == lookupfile#lastPattern)?\"\\<Lt>C-N>\":''\<CR>":"\<Down>"
+  inoremap <buffer> <expr> <silent> <Up>   pumvisible()?"\<C-P>\<C-R>=(getline('.') == lookupfile#lastPattern)?\"\\<Lt>C-P>\":''\<CR>":"\<Up>"
   inoremap <buffer> <expr> <PageDown> pumvisible()?"\<PageDown>\<C-P>\<C-N>":"\<PageDown>"
   inoremap <buffer> <expr> <PageUp>   pumvisible()?"\<PageUp>\<C-P>\<C-N>":"\<PageUp>"
   nnoremap <silent> <buffer> o :OpenFile<CR>
@@ -149,7 +154,7 @@ endfunction
 function! s:AddPattern()
   if g:LookupFile_PreservePatternHistory
     silent! put! =g:lookupfile#lastPattern
-    +
+    $
   endif
 endfunction
 
@@ -228,24 +233,22 @@ function! s:OpenCurFile(splitWin)
         \  substitute(g:LookupFile_LookupNotifyFunc, '\s', '', 'g') != '')
     call call(g:LookupFile_LookupNotifyFunc, [])
   endif
-
-  silent! put=''
   call lookupfile#CloseWindow()
 
-  let winnr = bufwinnr(fileName)
+  let winnr = bufwinnr(genutils#FindBufferForName(fileName))
   if winnr != -1
     exec winnr.'wincmd w'
   else
+    let splitOpen = 0
     if &switchbuf ==# 'split' || a:splitWin
-      split
+      let splitOpen = 1
     endif
-    let bufnr = genutils#FindBufferForName(fileName)
-    if bufnr != -1
-      " Presever the cursor location.
-      exec 'buffer' bufnr
-    else
-      exec 'edit' fileName
-    endif
+    " First try opening as a buffer, if it fails, we will open as a file.
+    try
+      exec (splitOpen?'s':'').'buffer' fileName
+    catch
+      exec (splitOpen?'split':'edit') fileName
+    endtry
   endif
 endfunction
 

@@ -1,9 +1,9 @@
 " lookupfile.vim: Lookup filenames by pattern
 " Author: Hari Krishna (hari_vim at yahoo dot com)
-" Last Change: 20-Aug-2006 @ 19:32
+" Last Change: 30-Aug-2006 @ 21:42
 " Created:     11-May-2006
 " Requires:    Vim-7.0, genutils.vim(1.2)
-" Version:     1.3.0
+" Version:     1.4.1
 " Licence: This program is free software; you can redistribute it and/or
 "          modify it under the terms of the GNU General Public License.
 "          See http://www.gnu.org/copyleft/gpl.txt 
@@ -93,6 +93,10 @@ if !exists('g:LookupFile_AllowNewFiles')
   let g:LookupFile_AllowNewFiles = 1
 endif
 
+if !exists('g:LookupFile_Bufs_SkipUnlisted')
+  let g:LookupFile_Bufs_SkipUnlisted = 1
+endif
+
 if (! exists("no_plugin_maps") || ! no_plugin_maps) &&
       \ (! exists("no_lookupfile_maps") || ! no_lookupfile_maps)
   noremap <script> <silent> <Plug>LookupFile :LookupFile<CR>
@@ -101,7 +105,7 @@ if (! exists("no_plugin_maps") || ! no_plugin_maps) &&
     nmap <unique> <silent> <F5> <Plug>LookupFile
   endif
   if !hasmapto('<Plug>LookupFile', 'i')
-    imap <unique> <silent> <F5> <C-O><Plug>LookupFile
+    imap <unique> <expr> <silent> <F5> (pumvisible()?"\<C-E>":"")."\<Esc>\<Plug>LookupFile"
   endif
 endif
 
@@ -177,7 +181,8 @@ endfunction
 
 function! s:LookupPath(pattern)
   let files = globpath(&path, '*'.a:pattern.'*')
-  return split(files, "\<NL>")
+  return map(split(files, "\<NL>"), '{"word": v:val,'.
+        \ '"abbr": fnamemodify(v:val, ":t"), "menu": fnamemodify(v:val, ":h")}')
 endfunction
 
 function! s:LookupBuf(pattern)
@@ -185,10 +190,25 @@ function! s:LookupBuf(pattern)
   let i = 1
   let lastBufNr = bufnr('$')
   while i <= lastBufNr
-    if bufexists(i) && fnamemodify(bufname(i), ':p:t') =~ a:pattern
-      call add(results, bufname(i))
-    endif
-    let i = i + 1
+    try
+      if ! bufexists(i)
+        continue
+      endif
+      if g:LookupFile_Bufs_SkipUnlisted && ! buflisted(i)
+        continue
+      endif
+      let fname = expand('#'.i.':p')
+      let bname = fnamemodify(bufname(i), ':t')
+      if bname =~ a:pattern
+        call add(results, {
+              \ 'word': fname,
+              \ 'abbr': bname,
+              \ 'menu': bufname(i),
+              \ })
+      endif
+    finally
+      let i = i + 1
+    endtry
   endwhile
   return results
 endfunction
@@ -200,29 +220,51 @@ endfunction
 function! s:LookupIdo(pattern)
   " Determine the parent dir.
   let parent = matchstr(a:pattern, '^.*/')
-  let pattern = strpart(a:pattern, len(parent))
-  if pattern == '*'
-    " Otherwise, it would become '***' resulting in a recursive search.
-    let pattern = ''
+  let filePat = strpart(a:pattern, len(parent))
+  " We will wait till '/' is typed
+  if filePat == '**'
+    return []
   endif
+  " Remove a leading or trailing '*' as we add it anyway. This also makes
+  " '**' as '', but we handle this case above anyway.
+  let filePat = substitute(filePat, '^\*\|\*$', '', 'g')
   "exec BPBreak(1)
   let _shellslash = &shellslash
   set shellslash
   try
-    let files = glob(parent.((pattern != '') ? '*'.pattern.'*' : '*'))
+    let files = glob(parent.((filePat != '') ? '*'.filePat.'*' : '*'))
+  catch
+    " Ignore errors in patterns.
+    let files = ''
   finally
     let &shellslash = _shellslash
   endtry
   let fl = split(files, "\<NL>")
+  let regexPat = s:TranslateFileRegex(filePat)
+  " Find the start of path component that uses any of the *, [], ? or {
+  " wildcard. Path until this is unambiguously common to all, so we can strip
+  " it off, for brevity.
+  let firstWildIdx = match(a:pattern, '[^/]*\%(\*\|\[\|?\|{\)')
+  return s:FormatFileResults(fl, firstWildIdx!=-1 ? firstWildIdx : strlen(parent), regexPat)
+endfunction
+
+function! s:FormatFileResults(fl, parentLen, matchPat)
   let entries = []
-  for f in fl
+  for f in a:fl
     let suffx = isdirectory(f)?'/':''
     let word = f.suffx
     let fname = matchstr(f, '[^/]*$')
+    let dir = fnamemodify(f, ':h').'/'
+    if dir != '/' && a:parentLen != -1
+      let dir = strpart(dir, a:parentLen)
+    else
+      let dir = ''
+    endif
+    "let dir = (dir == '/'?'':dir)
     call add(entries, {
           \ 'word': word,
           \ 'abbr': fname.suffx,
-          \ 'menu': (pattern!='') ? substitute(fname, '\V'.pattern, '[&]', '') : pattern,
+          \ 'menu': (a:matchPat!='') ? dir.substitute(fname, (genutils#OnMS()?'\c':'').'\V'.a:matchPat, '[&]', '') : dir.fname,
           \ 'kind': suffx,
           \ })
   endfor
@@ -303,6 +345,36 @@ endfunction
 
 function! s:GetDefDir()
   return substitute(expand('#'.s:baseBufNr.':p:h'), '\\', '/', 'g').'/'
+endfunction
+
+" Convert file wildcards ("*", "?" etc. |file-pattern|) to a Vim string
+"   regex metachars (see |pattern.txt|). Returns metachars that work in "very
+"   nomagic" mode.
+let s:fileWild = {}
+function! s:TranslateFileWild(fileWild)
+  let strRegex = ''
+  if a:fileWild ==# '*'
+    let strRegex = '\[^/]\*'
+  elseif a:fileWild ==# '**'
+    let strRegex = '\.\*'
+  elseif a:fileWild ==# '?'
+    let strRegex = '\.'
+  elseif a:fileWild ==# '['
+    let strRegex = '\['
+  endif
+  return strRegex
+endfunction
+
+" Convert a |file-pattern| to a Vim string regex (see |pattern.txt|). Returns
+"   patterns that work in "very nomagic" mode. No error checks for now,
+"   for simplicity.
+function! s:TranslateFileRegex(filePat)
+  let pat = substitute(a:filePat, '\(\*\*\|\*\|\[\)',
+        \ '\=s:TranslateFileWild(submatch(1))', 'g')
+  let unprotectedMeta = genutils#CrUnProtectedCharsPattern('?,', 1)
+  let pat = substitute(pat, unprotectedMeta,
+        \ '\=s:TranslateFileWild(submatch(1))', 'g')
+  return pat
 endfunction
 
 " Restore cpo.
