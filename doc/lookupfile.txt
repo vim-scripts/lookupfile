@@ -1,8 +1,8 @@
 *lookupfile.txt* Lookup files using Vim7 ins-completion
                     Requires Vim 7.0
-            Last Change: 28-Aug-2006 @ 12:27
-               Revision: 1.2.0
-         Plugin Version: 1.4
+            Last Change: 22-Oct-2006 @ 17:48
+               Revision: 1.3.0
+         Plugin Version: 1.6
                  Author: Hari Krishna Dara (hari_vim at yahoo dot com)
 
                                             *lookupfile-introduction*
@@ -22,6 +22,32 @@ specially generated tagfiles, that are meant only for finding the filenames. You
 don't however need to generate tag files at all to use the plugin, as there are
 ways to lookup files from sources other than tag files.
 
+==============================================================================
+OVERVIEW                                    *lookupfile-overview*
+
+|lookupfile-installation|     Installing the plugin.
+
+|lookupfile-usage|            A brief usage to get you quickly started.
+
+|lookupfile-maps|             Mappings defined in the lookup window.
+
+|lookupfile-tags|             Creating index of files for a fast lookup.
+
+|lookupfile-settings|         An explanation of various configure options.
+
+|lookupfile-extend|           Features that make the plugin extensible.
+
+|lookupfile-known-issues|     A list of known issues.
+
+|lookupfile-wishlist|         Wishlist items that may be worth doing for a future
+                              version.
+
+|lookupfile-changes|          A change list for current version from the previous
+                              versions.
+
+|lookupfile-acknowledgements| Acknowledgements.
+==============================================================================
+
                                             *lookupfile-installation*
 The distribution comes as a zipfile that can be extracted straight into your
 runtime directory (vimfiles/.vim). Please note that it depends on genutils
@@ -35,6 +61,10 @@ that you can have both installed at the same time.
 To install the help file, you need to run :helptags command on your runtime
 doc directory.
 
+                                            *lookupfile-map*
+                                            *lookupfile-default-cmd*
+                                            *LookupFile-command*
+                                            *:LookupFile*
 Once installed, you can optionally choose a key to be used to open the
 lookupfile window. The default is <F5>. To change this value, choose a key of
 your liking, say <A-S-L>, and add the below line to your vimrc: >
@@ -42,25 +72,26 @@ your liking, say <A-S-L>, and add the below line to your vimrc: >
 	nmap <unique> <silent> <A-S-L> <Plug>LookupFile
 <
 Note that the plugin creates a mapping for the insert-mode as well, so unless
-you explicitly specify a mapping, the default <F5> will get mapped to invoke
-lookupfile in the insert-mode. >
+you also explicitly specify a mapping for insert mode, the default <F5> will get
+mapped to invoke lookupfile in the insert-mode. >
 
 	imap <unique> <silent> <A-S-L> <C-O><Plug>LookupFile
 <
-To use the default lookup functionality, it is recommended to generate and
-maintain separate tags files for the filenames for this plugin to work
-efficiently (see |lookupfile-tags|). Though it will work with the regular tags
-files, it could be very slow and might not return the right set of filenames.
-Configure the tag expression such that the plugin will use the right tag files.
-It is any valid Vim {rhs}, the evaluated value should be a valid 'tags' value.
-For a static string, use extra quotes. Ex:
+The <Plug>LookupFile mapping is mapped to the :LookupFile command, which always
+assumes the last :LU command you use. This means, after using |:LUWalk|,
+pressing <F5> would result in executing the :LUWalk command until you type
+another command. Take a look at the |LookupFile_DefaultCmd| to specify the
+initial command that this map should get assigned to. If you want a map to
+always execute a specific command, you can create additional maps. E.g., if you
+want <F7> to always execute :LUTags, irrespective of what command you last
+used, then you can define something like:
 >
-  let g:LookupFile_TagExpr = '"./filenametags"'
-
-< or >
-  let g:myLookupFileTagExpr = './filenanmetags'
-  let g:LookupFile_TagExpr = 'g:myLookupFileTagExpr'
+        nnoremap <silent> <F7> :LUTags<CR>
 <
+You can also disable the default map completely, see
+|LookupFile_DisableDefaultMap| for details.
+==============================================================================
+
                                             *lookupfile-usage*
 To lookup a file, press the assigned key (default: F5) or use the :LookupFile
 command. This will open a small window above the current window, where you can
@@ -75,13 +106,19 @@ If you want to quickly close the [Lookup File] window without making a file
 selection, you can press the same key that you assigned to open the plugin to
 cancel the completion menu and close the window.
 
+Note that this works only when you use the <Plug> mapping to create a mapping
+(see |lookupfile-map|), not when you assign a mapping directly while disablign
+the default <Plug> mapping (see |LookupFile_DisableDefaultMap|).
+
 Note that the completion menu will be shown only when you are in the insert
 mode and the cursor is at the end of the line (this is the normal Vim behavior).
 
-Here is a summary of all the commands that the plugin defines.
+Here is a summary of all the commands that the plugin defines. All commands
+accept the initial pattern as an argument, and support appropriate
+|command-completion| mode.
 
         Command         Lookup source ~
-        LookupFile      Lookup files from tag files. This is a like a fast GNU
+        LUTags          Lookup files from tag files. This is a like a fast GNU
                         find on name. It can lookup files from any Vim
                         compatible tag file (which includes those from ctags),
                         but at the moment it is advisable to generate
@@ -103,6 +140,7 @@ Here is a summary of all the commands that the plugin defines.
                         command, then you will find this a lot more convenient
                         and faster to use.
         LUArgs          Lookup files from |:args| list.
+        LookupFile      A shortcut to the last command used from above set.
 
 It is also very easy to add new commands to or customize the plugin at various
 levels. At the simplest, you can create custom command on top of the above that
@@ -117,20 +155,54 @@ The :LookupFile and all the above commands accept an argument which is treated
 as the initial pattern. Specify a bang(!) after the command to always start with
 an empty line.
 
-                                            *lookupfile-ido*
-                                            *lookupfile-walk-path*
-                                            *lookupfile-LUWalk*
-                                            *lookupfile-LUBufs*
-The LUWalk and LUBufs commands are special in that they provide features that
-will be very fimilar to those who used Emacs ido.el lisp package. The LUWalk
-command is very useful to quickly navigate or "walk" path structures. The plugin
-provides a popup with matches for each path component as you type in a partial
-string. The matches are based on the Vim |glob()| expression rules.
+                                            *:LUTags*
+                                            *lookupfile-from-tags-files*
+The LUTags command provides a fast lookup of files from tags files. This works
+similar to the "Open Resource" command in eclipse where you can type part of the
+name and all the resources whose name has matching part are shown for selection.
 
-You can switch from file lookup to buffer lookup using <C-B> and from buffer
-lookup to file lookup using <C-F> while in insert mode. To accept the first
-entry in the matches, you can simply press <CR> or <C-O>, and if the entry
-happens to be a directory, new matches will be shown for that directory.
+To use the :LUTags command, it is recommended to generate and maintain
+separate tags files containing only filenames, for this plugin to work
+efficiently (see |lookupfile-tags|). Though it will work with the regular tags
+files, it could be very slow (due to the current performance of |taglist()| and
+might not return the right set of filenames. Configure the tag expression such
+that the plugin will use the right tag files. It is any valid Vim {rhs}, the
+evaluated value should be a valid 'tags' value. For a static string, use extra
+quotes. Ex:
+>
+        let g:LookupFile_TagExpr = string('./filenametags')
+
+< or >
+        let g:myLookupFileTagExpr = './filenanmetags'
+        let g:LookupFile_TagExpr = 'g:myLookupFileTagExpr'
+<
+Also see |LookupFile_UsingSpecializedTags| to enable better formatting of
+results once these specialized tags are generated and lookupfile is configured
+to take advantage of them.
+                                            *:LUPath*
+                                            *lookupfile-find-cmd-alternative*
+The LUPath command is a complete replacement for the built-in |:find| command.
+The completion popup alone is a good enough reason to use this command instead
+of the :find, but since it also recognizes the 'ignorecase' and 'smartcase'
+settings it makes it easier to type and still be able to do exact match when
+required.
+
+                                            *lookupfile-ido*
+The LUWalk and LUBufs commands are special in that they provide features that
+will be very fimilar to those who used Emacs ido lisp package.
+
+Similar to the ido, you can quickly switch from file lookup to buffer lookup
+using <C-B> and from buffer lookup to file lookup using <C-F> while in insert
+mode.
+
+                                            *:LUBufs*
+                                            *lookupfile-buffer-cmd-alternative*
+LUBufs command allows you to quickly search the already loaded buffers for a
+match and open it, so it can be used in the place of the built-in |:buffer|
+command and provides the same matching semantics by default. Take a look at the
+settings that start with "LookupFile_Bufs_" in their name to configure the
+behavior of this command. The :LUBufs command also supports an initial pattern
+as an arguments and supports filename completion.
 
 A good use case for :LUBufs command is when you have several files named
 similarly (e.g., having several buffers named Makefile or build.xml is very
@@ -138,6 +210,24 @@ common). Using a traditional buffer explorer plugin, finding the right file can
 become cumbersome when you have a large set of buffers opened. In this case, the
 :LUBufs command can help you locate the buffer much faster, as only the buffers
 that match what you specify will be shown with their path clearly visible.
+
+                                            *:LUWalk*
+                                            *lookupfile-walk-path*
+The LUWalk command is very useful to quickly navigate or "walk" filesystem
+paths. The plugin provides a popup with matches for each path component as you
+type in a partial string. The matches are based on the Vim |glob()| expression
+rules.  The :LUWalk command also accepts the initial directory name with or
+without a pattern as an argument, and supports directory name completion.
+
+When no root is specified, the match starts from the current directory.
+Pressing <Tab> before typing in any pattern will result in inserting the
+directory of the last file automatically. Type an extra "/" after a directory
+name to have only the directories shown in the results.
+
+To accept the first entry in the matches, you can simply press <CR> or <C-O>,
+and if the entry happens to be a directory, new matches will be shown for that
+directory.
+==============================================================================
 
                                             *lookupfile-maps*
 The maps that are available in the [Lookup File] window are listed below. Some
@@ -159,6 +249,7 @@ is visible, otherwise, they should have their default behavior.
         <BS>        i       Stops completion, restores pattern and executes
         o           n       Opens the current file in the previous window.
         O           n       Same as o, except the file opens in a split window.
+==============================================================================
 
                                             *lookupfile-tags*
 Unless you want to lookup files from alternate sources such as 'path', you
@@ -168,43 +259,78 @@ It is very easy to generate a tag file for an efficient lookup of filenames.
 If you have Unixy tools installed, you can run the below shell command to
 generate a tags file (you can put it in a shell-script and schedule it to be run
 every now and then to keep this file up to date) >
+
         (echo "!_TAG_FILE_SORTED	2	/2=foldcase/";
-        find . -type f -printf "%f\t%p\t1\n") | \
-        sort -f > ./filenametags
-<
+         (find . -type f -printf "%f\t%p\t1\n" | \
+         sort -f)) > ./filenametags
+
 Typically you would want to exclude generated files such as .class and
 .o. You can do this easily by specifying additional expressions to
-the find command (see manpage for find command). >
-        find . -not -iname "*.class" -type f -printf "%f\t%p\t1\n"
-< or >
-        find . -not -iregex '.*\.\(jar\|gif\|jpg\|class\|exe\|dll\|pdd\|sw[op]\|xls\|doc\|pdf\|zip\|tar\|ico\|ear\|war\|dat\).*' -type f -printf "%f\t%p\t1\n")
+the find command (see manpage for find command). E.g., replace the find
+command above with: >
+
+        find . -not -iname "*.class" -type f -printf "%f\t%p\t1\n" \
+
+< or, with something more useful: >
+
+        find . \( -name .svn -o -wholename ./classes \) -prune -o -not -iregex '.*\.\(jar\|gif\|jpg\|class\|exe\|dll\|pdd\|sw[op]\|xls\|doc\|pdf\|zip\|tar\|ico\|ear\|war\|dat\).*' -type f -printf "%f\t%p\t1\n" \
 <
+==============================================================================
+
                                             *lookupfile-settings*
 The settings are global variables that you can set in your vimrc. All settings
 are optional, as they all have default values, but it is highly recommended that
 you fine tune the g:LookupFile_TagExpr setting, as per |lookupfile-tags|.
+                                            *LookupFile_DefaultCmd*
+- This specifies the |lookupfile-command| that should be invoked when the
+  |LookupFile-command| or |lookupfile-map| is used. This defaults to ":LUTags",
+  but you can change it to say, ":LUWalk". The :LookupFile command always
+  assumes the last command that you used, so this setting only specifies the
+  command to be invoked for the first time.
+  Ex: >
+        let g:LookupFile_DefaultCmd = ':LUWalk'
+<
+                                            *LookupFile_DisableDefaultMap*
+- Setting this flag turns off the default maps created by the plugin such that
+  the user has full control on what maps to what command. >
+        let g:LookupFile_DisableDefaultMap = 1
+<
+                                            *LookupFile_TagExpr*
 - Use g:LookupFile_TagExpr to use custom tagfiles. A valid Vim expression
   resulting in a String should be used, which means "eval(g:LookupFile_TagExpr)"
   should return a valid value for 'tags' setting. Once you set a value for this
   setting and startup Vim, try >
         echo eval(g:LookupFile_TagExpr)
-< to make sure it is valid.
+< to make sure it is valid. Ex: >
+        let g:LookupFile_TagExpr = string('./filenametags')
+<
+                                            *LookupFile_MinPatLength*
 - By default g:LookupFile_MinPatLength is set to 4, which means you have to type
   at least 4 characters before the lookup is triggered. This is because the
   current taglist() function is too slow if the tag file is large.  Depending on
   the number of files you have, you may be able to set a lower value (or may
   even have to increase the value) for this setting.
+                                            *LookupFile_ShowFiller*
 - If you don't want the filler to be shown while the tags are being
   looked up, you can disable it by setting g:LookupFile_ShowFiller to 0. If you
   know for sure that the lookup never takes too long, then disabling the filler
   could make the completion menu less flashy.
+                                            *LookupFile_UsingSpecializedTags*
+- When you generate specialized tags as described in the |lookupfile-tags|
+  section, you can set g:LookupFile_UsingSpecializedTags to enabled better
+  formatting for showing the results.
+                                            *LookupFile_PreservePatternHistory*
 - By default, the plugin leaves a copy of the pattern that you used to
   lookup the file, so that you can scroll-back and find them (this is like a
   history), but you can disable this behavior by setting
   g:LookupFile_PreservePatternHistory to 0.
+                                            *LookupFile_PreserveLastPattern*
 - By default, the lookup window is started with the last pattern, which you can
   remove by quick pressing <Ctrl-U>, but if you always want to start blank, set
   g:LookupFile_PreserveLastPattern to 0.
+                                            *LookupFile_LookupFunc*
+                                            *LookupFile_LookupNotifyFunc*
+                                            *LookupFile_LookupAcceptFunc*
 - If you want to lookup matches yourself using an alternative procedure, you
   can specify a user function that should be called by the plugin, and
   by-pass the default tag based lookup. Use g:LookupFile_LookupFunc
@@ -214,14 +340,17 @@ you fine tune the g:LookupFile_TagExpr setting, as per |lookupfile-tags|.
   You can also set g:LookupFile_LookupNotifyFunc to be notified when a
   file is selected from the matches (not called with o or O commands), and
   g:LookupFile_LookupAcceptFunc to override the default handling of selection.
+                                            *LookupFile_switchbuf*
 - If you have 'switchbuf' set to "split" for your quickfix commands to
   always split open windows, the plugin recognizes this setting and split-opens
   all files.
+                                            *LookupFile_AlwaysAcceptFirst*
 - Normally when <CR> or <C-O> is pressed while the popup is visible, the first
   item in the list is selected, unless there is exactly only one item matching.
   This means, if you want to select the first item, you have press it twice. You
   can change this behavior to always accept the first item by setting
   g:LookupFile_AlwaysAcceptFirst (like ido.el).
+                                            *LookupFile_FileFilter*
 - Use the g:LookupFile_FileFilter to specify a Vim regular expression pattern
   that, when matched against the filename (or path, depending on the mode)
   results in filtered out. E.x: >
@@ -229,10 +358,64 @@ you fine tune the g:LookupFile_TagExpr setting, as per |lookupfile-tags|.
     " Don't display binary files
     let g:LookupFile_FileFilter = '\.class$\|\.o$\|\.obj$\|\.exe$\|\.jar$\|\.zip$\|\.war$\|\.ear$'
 <
+  NOTE that the |:LUPath| and |:LUWalk| commands use the Vim functions |globpath()|
+  and |glob()| that recognize the Vim setting 'wildignore', so setting this in
+  addition to 'wildignore' will have the matches filtered by both rules.
+                                            *LookupFile_AllowNewFiles*
 - Use the g:LookupFile_AllowNewFiles to specify whether entering non-existent
   files should generate an error or result in getting a new buffer created.
-- When using LUWalk, if the first entry in the matches is a directory, it could
-  result in a misbehavior.
+                                            *LookupFile_ignorecase*
+                                            *LookupFile_smartcase*
+- The plugin now recognizes 'ignorecase' and 'smartcase' settings to match files
+  even on systems that are case-sensitive. On unix like platforms, glob()
+  matches patterns in a case-sensitive manner, so setting 'ignorecase' will
+  enable special translation of patterns so that you get case-insensitive
+  results. On Windows, since glob() is already case-insensitive no special
+  handling is required for 'ignorecase', however, when 'smartcase' is set, there
+  is no way to force glob() to return case-sensitive results, so a
+  post-processing of the results is done to drop files that would not otherwise
+  have matched.
+                                            *LookupFile_SortMethod*
+- Use this setting to specify the sort method to use for sorting results. The
+  default value is "alpha", which means that they will be sorted alphabatically.
+  You can also set an empty value to disable sorting. See also
+  |LookupFile_Bufs_BufListExpr| to enable MRU sorting for |:LUBufs| command.
+                                            *LookupFile_Bufs_BufListExpr*
+- Use g:LookupFile_Bufs_BufListExpr to specify an expression that returns a
+  |List| of buffers to display. By default this is set to an empty string, but
+  you can set any valid Vim expression that results in a List. If you also have
+  the latest version of SelectBuf (http://www.vim.org/script.php?script_id=107)
+  installed, a useful value that you can set here is "g:SB_MRUlist", which will
+  then display buffers in the MRU order. >
+
+        let g:LookupFile_Bufs_BufListExpr = 'g:SB_MRUlist'
+<
+  You can use this setting to even specify your own global function.
+                                            *LookupFile_Bufs_SkipUnlisted*
+- By default, the |:LUBufs| commands skips all unlisted buffers from results,
+  but if you want them to be included, reset LookupFile_Bufs_SkipUnlisted
+  setting.
+                                            *LookupFile_Bufs_LikeBufCmd*
+- This setting impacts the behavior of |:LUBufs| command on how the pattern is
+  matched. By default, it matches just like the |:buffer| command, so the
+  pattern is treated as per the rules of |wildcard| matching against the current
+  |bufname()| of each buffer. Clearing this setting will cause the command to
+  match the pattern as a Vim regex against only the filename portion of each
+  buffer.
+                                            *LookupFile_UpdateTime*
+- LookupFile uses |CursorHoldI| autocommand to trigger the completion and this
+  event doesn't get triggered unless nothing is typed for 'updatetime'
+  milliseconds. Since the default value for 'updatetime' is rather large,  the
+  plugin changes this value to g:LookupFile_UpdateTime (which defaults to 300
+  milliseconds or 3/10th of a second) while the [Lookup File] window is active.
+                                            *LookupFile_EscCancelsPopup*
+- On some systems, the mapping for <Esc> to cancel the popup could interfere
+  with the arrow keys, so if you want the plugin to not map <Esc> key, then
+  reset |LookupFile_EscCancelsPopup| setting. >
+
+        let g:LookupFile_EscCancelsPopup = 0
+<
+==============================================================================
 
                                             *lookupfile-extend*
 If you want to extend the functionality of the plugin, by creating new commands
@@ -321,9 +504,16 @@ a map such that pressing <Esc> twice in succession will close the window: >
   - You can create an alternate tags file to store only directory names such
     that you can lookup directory names instead of filenames. The following
     command can create such a tags file: >
+
         (echo "!_TAG_FILE_SORTED	2	/2=foldcase/";
         find . -type d -printf "%f\t%p\t1\n") | \
         sort -f > ./dirnametags
+<
+    Note that this generates tag file with relative paths, which is known to
+    cause problem with |taglist()| function when the tag file is not in the same
+    directory as Vim's current directory (see |lookupfile-known-issues|. To
+    workaround, you can generate absolute paths, you can use "`pwd`" instead of "."
+    as the root.
 - You can create custom commands/mappings that always start with a fixed or
   computed pattern. E.g., to always start LUWalk in the root of c: drive, create
   a command as: >
@@ -364,6 +554,7 @@ a map such that pressing <Esc> twice in succession will close the window: >
       call input('SpellAccept')
     endfunction
 <
+==============================================================================
 
                                             *lookupfile-known-issues*
 - Vim sometimes automatically replaces the pattern with the first filename
@@ -376,8 +567,14 @@ a map such that pressing <Esc> twice in succession will close the window: >
 - If you press the <Plug>LookupFile key while making a file selection, the
   completion doesn't get aborted, but instead it gets selected and the 
   [Lookup File] window still remains open.
+- There is a bug in taglist() that returns incorrect relative paths if the
+  current directory of Vim is not the same as the directory in which tags file
+  resides. This impacts the :LookupFile command. If this is an issue for you,
+  you should generate the tag files with absolute paths instead of relative
+  paths, by giving absolute directory names.
+==============================================================================
 
-                                            *lookupfile-todo*
+                                            *lookupfile-wishlist*
 - Allow on the fly filtering of the filenames by prompting the user for a
   pattern to match (or not match) against the whole filename.
 - Option to sort filenames by their extension, or by MRU.
@@ -385,18 +582,61 @@ a map such that pressing <Esc> twice in succession will close the window: >
   the right tab). This works like "find window in all the tabs".
 - Save and restore matching results, for patterns that take a long time to build
   (especially those that involve "**").
-
-                                            *lookupfile-acknowledgements*
-- Max Dyckhoff (maxd at microsoft dot com) for beta testing and reporting
-  numerous issues and suggesting improvements etc. The plugin is a lot
-  more stable, thanks to him.
-  I would also like to specially thank him for proof reading the first version
-  of this documentation.
-- Eddy Zhao (eddy dot y dot zhao at gmail dot com> for suggesting several
-  improvements on the lines of emacs ido.el and rigorously testing them. The
-  LUWalk command is the result of this.
+==============================================================================
 
                                             *lookupfile-changes*
+
+                                            *lookupfile-changes-1.6*
+                                            *lookupfile-changes-1.5*
+- LookupFile now uses CursorHoldI instead of CursorMovedI to show matches. This
+  means, the matches are not computed until you stop typing, which should give a
+  better experience. See |LookupFile_UpdateTime| for more information.
+- The plugin now sets 'completefunc' such that you can now hit <C-X><C-U> to
+  trigger completions explicitly (instead of waiting for
+  g:LookupFile_UpdateTime). This is useful if you are a slow typer and so prefer
+  a large value for g:LookupFile_UpdateTime.
+- The plugin now recognizes 'ignorecase' and 'smartcase' settings to match files
+  even on systems that are case-sensitive. This is mainly significant for the
+  commands that use |globpath()| or |glob()| which are, |:LUPath| and |:LUWalk|,
+  as the others already respect these settings.
+- There is now a separate command called :LUTags that always does what
+  :LookupFile used to do, while the :LookupFile command itself now gets
+  dynamically assigned to the last command used. This also means, the map that
+  is choosen in |lookupfile-map| now invokes the last command that is used, use
+  |LookupFile_DefaultCmd| and |LookupFile_DisableDefaultMap| settings to control
+  this behavior.
+- LUWalk now supports showing only directory names in the results. Just type
+  an extra / to filter those that are not directories (the suffix will then be
+  two slashes).
+- The default behavior of |:LUBufs| is now to match the entire |bufname()|,
+  just like the |:buffer| command would do. To see the old behavior, reset
+  |LookupFile_Bufs_LikeBufCmd| setting.
+- If you have the new version of SelectBuf also installed, you can have
+  |:LUBufs| sort buffers in MRU order. See, |LookupFile_Bufs_BufListExpr|.
+- When tags file is not generated as per the requirements of |lookupfile-tags|,
+  the format of the matches doesn't look good, so by default the matches just
+  show full filenames. See |LookupFile_UsingSpecializedTags| to get better
+  formatted results.
+- New settings |LookupFile_UsingSpecializedTags|, |LookupFile_SortMethod|,
+  |LookupFile_DefaultCmd|, |LookupFile_DisableDefaultMap|,
+  |LookupFile_Bufs_LikeBufCmd|, |LookupFile_Bufs_BufListExpr|,
+  |LookupFile_EscCancelsPopup|.
+- Bug fix: exact matches were getting dropped from results  (Max Dyckhoff).
+- Bug fix: <BS> in |:LUWalk| right after selecting a directory match caused it
+  to misbehave.
+- Bug fix: if tags file is not in the current directory, the opening fails. Now
+  :LookupFile expands the filenames explicitly so that the paths are always
+  valid.
+- Bug fix: Unsetting |LookupFile_AllowNewFiles| didn't disable the feature.
+- Bug fix: <C-E> was not hiding the popup.
+- Bug fix: <S-BS> triggers the default insert-mode completion (Max Dyckhoff).
+- Fixed misc. bugs in opening files.
+- Workaround for <Esc> not working on some systems, allow disabling the
+  mapping.
+- Bug fix: When there is an exising swapfile, opening the files result in an
+  error message (David Fishburn).
+- When LookupFile_UsingSpecializedTags is set, sorting should be done on the
+  filename (patch by Timothy, Guo).
 
                                             *lookupfile-changes-1.4*
 - Fixed a bug in the initial pattern getting ignored.
@@ -433,5 +673,21 @@ a map such that pressing <Esc> twice in succession will close the window: >
 - Now the cursor position is preserved, while opening a file that is already
   loaded.
 - Using genutils 2.1.
+==============================================================================
+
+                                            *lookupfile-acknowledgements*
+- Max Dyckhoff (maxd at microsoft dot com) for beta testing and reporting
+  numerous issues and suggesting improvements etc. The plugin is a lot
+  more stable, thanks to him.
+  I would also like to specially thank him for proof reading the first version
+  of this documentation.
+- Eddy Zhao (eddy dot y dot zhao at gmail dot com> for suggesting several
+  improvements on the lines of emacs ido.el and rigorously testing them. The
+  LUWalk command is the result of this.
+- Eddy Zhao (eddy dot y dot zhao at gmail dot com> for suggesting several
+- Dane Summers (dsummersl at yahoo dot com) for feedback and doc updates.
+- Timothy, Guo (firemeteor dot guo at gmail dot com) for improving the sorting
+  and other feedback.
+
 
  vim6:tw=80:ts=8:ft=help:ai:sw=4:et

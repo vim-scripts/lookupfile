@@ -1,9 +1,9 @@
 " lookupfile.vim: Lookup filenames by pattern
 " Author: Hari Krishna (hari_vim at yahoo dot com)
-" Last Change: 30-Aug-2006 @ 21:42
+" Last Change: 28-May-2007 @ 19:52
 " Created:     11-May-2006
-" Requires:    Vim-7.0, genutils.vim(1.2)
-" Version:     1.4.1
+" Requires:    Vim-7.1, genutils.vim(2.3)
+" Version:     1.6.5
 " Licence: This program is free software; you can redistribute it and/or
 "          modify it under the terms of the GNU General Public License.
 "          See http://www.gnu.org/copyleft/gpl.txt 
@@ -15,19 +15,19 @@
 if exists('loaded_lookupfile')
   finish
 endif
-if v:version < 700
-  echomsg 'lookupfile: You need at least Vim 7.0'
+if v:version < 701
+  echomsg 'lookupfile: You need at least Vim 7.1'
   finish
 endif
 if !exists('loaded_genutils')
   runtime plugin/genutils.vim
 endif
-if !exists('loaded_genutils') || loaded_genutils < 200
+if !exists('loaded_genutils') || loaded_genutils < 203
   echomsg 'lookupfile: You need a newer version of genutils.vim plugin'
   finish
 endif
 
-let g:loaded_lookupfile = 1
+let g:loaded_lookupfile = 106
 
 " Make sure line-continuations won't cause any problem. This will be restored
 "   at the end
@@ -35,86 +35,125 @@ let s:save_cpo = &cpo
 set cpo&vim
 
 if !exists('g:LookupFile_TagExpr')
-  " Default tag expression.
   let g:LookupFile_TagExpr = '&tags'
 endif
 
 if !exists('g:LookupFile_LookupFunc')
-  " An alternate user function to lookup matches.
   let g:LookupFile_LookupFunc = ''
 endif
 
 if !exists('g:LookupFile_LookupNotifyFunc')
-  " The function that should be notified when a file is selected.
   let g:LookupFile_LookupNotifyFunc = ''
 endif
 
 if !exists('g:LookupFile_LookupAcceptFunc')
-  " The function that should be notified when user presses <Enter>. This is
-  " like handling the selection yourself.
   let g:LookupFile_LookupAcceptFunc = ''
 endif
 
 if !exists('g:LookupFile_MinPatLength')
-  " Min. length of the pattern to trigger lookup.
   let g:LookupFile_MinPatLength = 4
 endif
 
 if !exists('g:LookupFile_PreservePatternHistory')
-  " Show the past patterns also in the buffers.
   let g:LookupFile_PreservePatternHistory = 1
 endif
 
 if !exists('g:LookupFile_PreserveLastPattern')
-  " Start with the last pattern when a new lookup is started.
   let g:LookupFile_PreserveLastPattern = 1
 endif
 
 if !exists('g:LookupFile_ShowFiller')
-  " Show "Looking up files.." while the tags are being looked up.
   let g:LookupFile_ShowFiller = 1
 endif
 
 if !exists('g:LookupFile_AlwaysAcceptFirst')
-  " Pressing <CR> or <C-O> when popup is visible always accepts the first
-  " entry.
   let g:LookupFile_AlwaysAcceptFirst = 0
 endif
 
 if !exists('g:LookupFile_FileFilter')
-  " A regular expression, which when matched against the result is filtered
-  " out.
   let g:LookupFile_FileFilter = ''
 endif
 
 if !exists('g:LookupFile_AllowNewFiles')
-  " If set, entering a non-existing filename will allow the plugin to create a
-  " new buffer for it.
   let g:LookupFile_AllowNewFiles = 1
+endif
+
+if !exists('g:LookupFile_SortMethod')
+  let g:LookupFile_SortMethod = 'alpha'
+endif
+
+if !exists('g:LookupFile_Bufs_BufListExpr')
+  let g:LookupFile_Bufs_BufListExpr = ''
 endif
 
 if !exists('g:LookupFile_Bufs_SkipUnlisted')
   let g:LookupFile_Bufs_SkipUnlisted = 1
 endif
 
+if !exists('g:LookupFile_Bufs_LikeBufCmd')
+  let g:LookupFile_Bufs_LikeBufCmd = 1
+endif
+
+if !exists('g:LookupFile_UsingSpecializedTags')
+  let g:LookupFile_UsingSpecializedTags = 0
+endif
+
+if !exists('g:LookupFile_DefaultCmd')
+  let g:LookupFile_DefaultCmd = ':LUTags'
+endif
+
+if !exists('g:LookupFile_DisableDefaultMap')
+  let g:LookupFile_DisableDefaultMap = 0
+endif
+
+if !exists('g:LookupFile_UpdateTime')
+  let g:LookupFile_UpdateTime = 300
+endif
+
+if !exists('g:LookupFile_OnCursorMovedI')
+  let g:LookupFile_OnCursorMovedI = 0
+endif
+
+if !exists('g:LookupFile_EscCancelsPopup')
+  let g:LookupFile_EscCancelsPopup = 1
+endif
+
 if (! exists("no_plugin_maps") || ! no_plugin_maps) &&
       \ (! exists("no_lookupfile_maps") || ! no_lookupfile_maps)
   noremap <script> <silent> <Plug>LookupFile :LookupFile<CR>
 
-  if !hasmapto('<Plug>LookupFile', 'n')
-    nmap <unique> <silent> <F5> <Plug>LookupFile
-  endif
-  if !hasmapto('<Plug>LookupFile', 'i')
-    imap <unique> <expr> <silent> <F5> (pumvisible()?"\<C-E>":"")."\<Esc>\<Plug>LookupFile"
+  if ! g:LookupFile_DisableDefaultMap
+    if !hasmapto('<Plug>LookupFile', 'n')
+      nmap <unique> <silent> <F5> <Plug>LookupFile
+    endif
+    if !hasmapto('<Plug>LookupFile', 'i')
+      inoremap <Plug>LookupFileCE <C-E>
+      imap <unique> <expr> <silent> <F5> (pumvisible() ? "\<Plug>LookupFileCE" :
+            \ "")."\<Esc>\<Plug>LookupFile"
+    endif
   endif
 endif
 
-command! -nargs=? -bang -complete=file LookupFile :call lookupfile#OpenWindow("<bang>", <q-args>)
+command! -nargs=? -bang -complete=file LookupFile :call
+      \ <SID>LookupUsing('lookupfile', "<bang>", <q-args>, 0)
 
-command! -nargs=? -bang -complete=file LUPath :call <SID>LookupUsing("<bang>", <q-args>, s:SNR().'LookupPath', g:LookupFile_MinPatLength)
-command! -nargs=? -bang -complete=file LUArgs :call <SID>LookupUsing("<bang>", <q-args>, s:SNR().'LookupArgs', 0)
-command! -nargs=? -bang -complete=file LUBufs :call <SID>LookupUsing("<bang>", <q-args>, s:SNR().'LookupBuf', 0) | call <SID>ConfigIdo('buffer')
-command! -nargs=? -bang -complete=dir LUWalk :call <SID>LookupUsing("<bang>", <q-args>, s:SNR().'LookupIdo', 0) | call <SID>ConfigIdo('file')
+command! -nargs=? -bang -complete=tag LUTags :call
+      \ <SID>LookupUsing('lookupfile', "<bang>", <q-args>, 0)
+command! -nargs=? -bang -complete=file LUPath :call
+      \ <SID>LookupUsing('Path', "<bang>", <q-args>, g:LookupFile_MinPatLength)
+command! -nargs=? -bang -complete=file LUArgs :call
+      \ <SID>LookupUsing('Args', "<bang>", <q-args>, 0)
+command! -nargs=? -bang -complete=file LUBufs :call
+      \ <SID>LookupUsing('Bufs', "<bang>", <q-args>, 0)
+command! -nargs=? -bang -complete=dir LUWalk :call
+      \ <SID>LookupUsing('Walk', "<bang>", <q-args>, 0)
+
+function! s:RemapLookupFile(cmd)
+  let cmd = (a:cmd != '') ? a:cmd : ':LUTags'
+  " It is not straight-forward to determine the right completion method.
+  exec 'command! -nargs=? -bang -complete=file LookupFile' cmd
+endfunction
+call s:RemapLookupFile(g:LookupFile_DefaultCmd)
 
 let s:mySNR = ''
 function! s:SNR()
@@ -125,16 +164,30 @@ function! s:SNR()
 endfun
 
 let s:baseBufNr = 0
-function! s:LookupUsing(bang, initPat, func, minPatLen)
-  call s:SaveSett('LookupFunc')
-  call s:SaveSett('LookupNotifyFunc')
-  call s:SaveSett('MinPatLength')
-  unlet! g:LookupFile_LookupFunc g:LookupFile_LookupNotifyFunc
-  let g:LookupFile_LookupFunc = function(a:func)
-  let g:LookupFile_LookupNotifyFunc = function(s:SNR().'LookupReset')
-  let g:LookupFile_MinPatLength = a:minPatLen
-  let s:baseBufNr = bufnr('%')
-  exec 'LookupFile'.a:bang a:initPat
+function! s:LookupUsing(ftr, bang, initPat, minPatLen)
+  let cmd = ':LUTags'
+  if a:ftr != 'lookupfile'
+    call s:SaveSett('LookupFunc')
+    call s:SaveSett('LookupNotifyFunc')
+    call s:SaveSett('MinPatLength')
+    unlet! g:LookupFile_LookupFunc g:LookupFile_LookupNotifyFunc
+    let g:LookupFile_LookupFunc = function(s:SNR().'Lookup'.a:ftr)
+    let g:LookupFile_LookupNotifyFunc = function(s:SNR().'LookupReset')
+    let g:LookupFile_MinPatLength = a:minPatLen
+    let s:baseBufNr = bufnr('%')
+    let cmd = ':LU'.a:ftr
+  endif
+  call s:RemapLookupFile(cmd)
+  call lookupfile#OpenWindow(a:bang, a:initPat)
+
+  if exists('*s:Config'.a:ftr)
+    call s:Config{a:ftr}()
+  endif
+
+  aug LookupReset
+    au!
+    au BufHidden <buffer> call <SID>LookupReset()
+  aug END
 endfunction
 
 function! s:LookupReset()
@@ -180,54 +233,125 @@ function! s:AddCleanup(cmd)
 endfunction
 
 function! s:LookupPath(pattern)
-  let files = globpath(&path, '*'.a:pattern.'*')
-  return map(split(files, "\<NL>"), '{"word": v:val,'.
-        \ '"abbr": fnamemodify(v:val, ":t"), "menu": fnamemodify(v:val, ":h")}')
+  let filePat = a:pattern
+  let matchingExactCase = s:MatchingExactCase(filePat)
+  " Remove leading or trailing '*'s as we add a star anyway. This also removes
+  " '**' unless it is followed by a slash.
+  let filePat = substitute(filePat, '^\*\+\|\*\+$', '', 'g')
+  " On windows, the case is anyway ignored.
+  if !genutils#OnMS() && !matchingExactCase
+    let filePat = s:FilePatIgnoreCase(filePat)
+  endif
+  let fl = split(globpath(&path, (filePat != '') ? '*'.filePat.'*' : '*'),
+        \ "\n")
+  let regexPat = s:TranslateFileRegex(filePat)
+  " This is a psuedo case-sensitive match for windows, when 'smartcase' is
+  " set.
+  if genutils#OnMS() && matchingExactCase
+    set verbose=15
+    call filter(fl, 'v:val =~# regexPat')
+    set verbose=0
+  endif
+  return map(fl,
+        \ '{'.
+        \ ' "word": v:val,'.
+        \ ' "abbr": fnamemodify(v:val, ":t"), '.
+        \ ' "menu": fnamemodify(v:val, ":h")'.
+        \ ' "dup": 1'.
+        \ '}')
 endfunction
 
-function! s:LookupBuf(pattern)
+function! s:LookupArgs(pattern)
+  return map(filter(argv(), 'v:val =~ a:pattern'),
+        \ '{'.
+        \ ' "word":fnamemodify(v:val, ":p"), '.
+        \ ' "abbr": v:val, '.
+        \ ' "menu": substitute(v:val, a:pattern, "[&]", "")'.
+        \ ' "dup": 1'.
+        \ '}')
+endfunction
+
+let s:bufList = [1]
+function! s:LookupBufs(pattern)
   let results = []
-  let i = 1
+
+  if g:LookupFile_Bufs_BufListExpr != ''
+    let buflist = eval(g:LookupFile_Bufs_BufListExpr)
+  else
+    " Since we need to generate the same range again and again, it is better to
+    " cache the list.
+    if s:bufList[-1] != bufnr('$')
+      call extend(s:bufList, range(s:bufList[-1], bufnr('$')))
+    endif
+    let buflist = s:bufList
+  endif
   let lastBufNr = bufnr('$')
-  while i <= lastBufNr
+  let i = 1
+  if g:LookupFile_Bufs_LikeBufCmd
+    let pattern = s:TranslateFileRegex(a:pattern)
+  else
+    let pattern = a:pattern
+  endif
+  for bufNr in buflist
+    if ! bufexists(bufNr)
+      call remove(buflist, i)
+      continue
+    endif
     try
-      if ! bufexists(i)
+      if g:LookupFile_Bufs_SkipUnlisted && ! buflisted(bufNr)
         continue
       endif
-      if g:LookupFile_Bufs_SkipUnlisted && ! buflisted(i)
-        continue
+      let fname = expand('#'.bufNr.':p')
+      if g:LookupFile_Bufs_LikeBufCmd
+        let bname = bufname(bufNr)
+        let dir = ''
+      else
+        let bname = fnamemodify(bufname(bufNr), ':t')
+        let dir = fnamemodify(bufname(bufNr), ':h').'/'
       endif
-      let fname = expand('#'.i.':p')
-      let bname = fnamemodify(bufname(i), ':t')
-      if bname =~ a:pattern
+      if bname =~ pattern
         call add(results, {
               \ 'word': fname,
               \ 'abbr': bname,
-              \ 'menu': bufname(i),
+              \ 'menu': dir.substitute(bname, pattern, '[&]', ''),
+              \ 'dup': 1,
               \ })
       endif
     finally
       let i = i + 1
     endtry
-  endwhile
+  endfor
   return results
 endfunction
 
-function! s:LookupArgs(pattern)
-  return filter(argv(), 'v:val =~ a:pattern')
-endfunction
-
-function! s:LookupIdo(pattern)
-  " Determine the parent dir.
-  let parent = matchstr(a:pattern, '^.*/')
-  let filePat = strpart(a:pattern, len(parent))
+function! s:LookupWalk(pattern)
   " We will wait till '/' is typed
-  if filePat == '**'
+  if a:pattern =~ '\*\*$'
     return []
   endif
-  " Remove a leading or trailing '*' as we add it anyway. This also makes
-  " '**' as '', but we handle this case above anyway.
-  let filePat = substitute(filePat, '^\*\|\*$', '', 'g')
+  let showOnlyDirs = 0
+  " Determine the parent dir.
+  if a:pattern =~ '//$'
+    let parent = strpart(a:pattern, 0, strlen(a:pattern)-1)
+    let filePat = ''
+    if parent ==# g:lookupfile#lastPattern
+      return filter(g:lookupfile#lastResults, 'v:val["kind"] == "/"')
+    endif
+    let showOnlyDirs = 1
+  else
+    let parent = matchstr(a:pattern, '^.*/')
+    let filePat = strpart(a:pattern, len(parent))
+  endif
+
+  let matchingExactCase = s:MatchingExactCase(filePat)
+
+  " Remove leading or trailing '*'s as we add a star anyway. This also makes
+  " '**' as '', but we rule this case out already.
+  let filePat = substitute(filePat, '^\*\+\|\*\+$', '', 'g')
+  " On windows, the case is anyway ignored.
+  if !genutils#OnMS() && !matchingExactCase
+    let filePat = s:FilePatIgnoreCase(filePat)
+  endif
   "exec BPBreak(1)
   let _shellslash = &shellslash
   set shellslash
@@ -241,17 +365,30 @@ function! s:LookupIdo(pattern)
   endtry
   let fl = split(files, "\<NL>")
   let regexPat = s:TranslateFileRegex(filePat)
+  " This is a psuedo case-sensitive match for windows, when 'smartcase' is
+  " set.
+  if genutils#OnMS() && matchingExactCase
+    call filter(fl, 'fnamemodify(v:val, ":t") =~# regexPat')
+  endif
   " Find the start of path component that uses any of the *, [], ? or {
   " wildcard. Path until this is unambiguously common to all, so we can strip
   " it off, for brevity.
   let firstWildIdx = match(a:pattern, '[^/]*\%(\*\|\[\|?\|{\)')
-  return s:FormatFileResults(fl, firstWildIdx!=-1 ? firstWildIdx : strlen(parent), regexPat)
+  return s:FormatFileResults(fl, firstWildIdx!=-1 ? firstWildIdx :
+        \ strlen(parent), regexPat, matchingExactCase, showOnlyDirs)
 endfunction
 
-function! s:FormatFileResults(fl, parentLen, matchPat)
+function! s:FormatFileResults(fl, parentLen, matchPat, matchingCase, dirsOnly)
   let entries = []
   for f in a:fl
-    let suffx = isdirectory(f)?'/':''
+    if isdirectory(f)
+      let suffx = '/'
+    else
+      if a:dirsOnly
+        continue
+      endif
+      let suffx = ''
+    endif
     let word = f.suffx
     let fname = matchstr(f, '[^/]*$')
     let dir = fnamemodify(f, ':h').'/'
@@ -264,37 +401,41 @@ function! s:FormatFileResults(fl, parentLen, matchPat)
     call add(entries, {
           \ 'word': word,
           \ 'abbr': fname.suffx,
-          \ 'menu': (a:matchPat!='') ? dir.substitute(fname, (genutils#OnMS()?'\c':'').'\V'.a:matchPat, '[&]', '') : dir.fname,
+          \ 'menu': (a:matchPat!='') ? dir.substitute(fname,
+          \   (a:matchingCase?'\C':'\c').a:matchPat, '[&]', '') :
+          \    dir.fname,
           \ 'kind': suffx,
+          \ 'dup': 1
           \ })
   endfor
   return entries
 endfunction
 
-function! s:ConfigIdo(mode)
-  if a:mode == 'buffer'
-    " Allow switching to file mode.
-    inoremap <expr> <buffer> <C-F> <SID>IdoSwitchTo('file')
-    call s:AddCleanup('iunmap <buffer> <C-F>')
-  else
-    call s:SaveSett('LookupAcceptFunc')
-    unlet! g:LookupFile_LookupAcceptFunc
-    let g:LookupFile_LookupAcceptFunc = function(s:SNR().'IdoAccept')
-    " Make sure we have the right slashes, in case user passed in init path
-    " with wrong slashes.
-    call setline('.', substitute(getline('.'), '\\', '/', 'g'))
-
-    inoremap <buffer> <expr> <BS> <SID>IdoBS()
-    call s:AddCleanup('iunmap <buffer> <BS>')
-    imap <buffer> <expr> <Tab> <SID>IdoTab()
-    call s:AddCleanup('iunmap <buffer> <Tab>')
-    inoremap <expr> <buffer> <C-B> <SID>IdoSwitchTo('buffer')
-    call s:AddCleanup('iunmap <buffer> <C-B>')
+function! s:ConfigBufs()
+  " Allow switching to file mode.
+  inoremap <expr> <buffer> <C-F> <SID>IdoSwitchTo('file')
+  call s:AddCleanup('iunmap <buffer> <C-F>')
+  if g:LookupFile_Bufs_BufListExpr != ''
+    call s:SaveSett('SortMethod')
+    let g:LookupFile_SortMethod = ''
   endif
-  aug ConfigIdo
-    au!
-    au BufHidden <buffer> call <SID>LookupReset()
-  aug END
+endfunction
+
+function! s:ConfigWalk()
+  call s:SaveSett('LookupAcceptFunc')
+  unlet! g:LookupFile_LookupAcceptFunc
+  let g:LookupFile_LookupAcceptFunc = function(s:SNR().'IdoAccept')
+  " Make sure we have the right slashes, in case user passed in init path
+  " with wrong slashes.
+  call setline('.', substitute(getline('.'), '\\', '/', 'g'))
+
+  inoremap <buffer> <expr> <BS> <SID>IdoBS()
+  inoremap <buffer> <expr> <S-BS> <SID>IdoBS()
+  call s:AddCleanup('iunmap <buffer> <BS>')
+  imap <buffer> <expr> <Tab> <SID>IdoTab()
+  call s:AddCleanup('iunmap <buffer> <Tab>')
+  inoremap <expr> <buffer> <C-B> <SID>IdoSwitchTo('buffer')
+  call s:AddCleanup('iunmap <buffer> <C-B>')
 endfunction
 
 function! s:IdoSwitchTo(mode)
@@ -323,14 +464,16 @@ function! s:IdoAccept(splitWin, key)
 endfunction
 
 function! s:IdoBS()
-  if !pumvisible()
+  if lookupfile#IsPopupHidden() == 1
     return "\<BS>"
-  elseif getline('.') !~ '/$'
-    return "\<C-E>\<BS>"
+  endif
+  if getline('.') !~ '/$'
+    return (pumvisible() ? "\<C-E>" : '')."\<BS>"
   else
     " Determine the number of <BS>'s required to remove the patch component.
     let lastComp = matchstr(getline('.'), '[^/]*/$')
-    return "\<C-E>".repeat("\<BS>", strlen(lastComp))
+    return (pumvisible() ? (getline('.') ==# g:lookupfile#lastPattern ?
+          \ "\<C-E>" : "\<C-Y>") : '') . repeat("\<BS>", strlen(lastComp))
   endif
 endfunction
 
@@ -365,16 +508,47 @@ function! s:TranslateFileWild(fileWild)
   return strRegex
 endfunction
 
-" Convert a |file-pattern| to a Vim string regex (see |pattern.txt|). Returns
-"   patterns that work in "very nomagic" mode. No error checks for now,
-"   for simplicity.
+" Convert a |file-pattern| to a Vim string regex (see |pattern.txt|).
+"   No error checks for now, for simplicity.
 function! s:TranslateFileRegex(filePat)
   let pat = substitute(a:filePat, '\(\*\*\|\*\|\[\)',
         \ '\=s:TranslateFileWild(submatch(1))', 'g')
   let unprotectedMeta = genutils#CrUnProtectedCharsPattern('?,', 1)
   let pat = substitute(pat, unprotectedMeta,
         \ '\=s:TranslateFileWild(submatch(1))', 'g')
-  return pat
+  return (pat == '') ? pat : '\V'.pat
+endfunction
+ 
+" Translates the file pattern to ignore case on non-case-insensitive systems.
+function! s:FilePatIgnoreCase(filePat)
+  return substitute(a:filePat, '\(\[.\{-}]\)\|\(\a\)',
+        \ '\=s:TranslateAlpha(submatch(0))', 'g')
+endfunction
+
+function! s:TranslateAlpha(pat)
+  if a:pat =~"^["
+    return substitute(substitute(a:pat, '-\@<!\a-\@!', '&\u&', 'g'),
+          \ '\(\a\)-\(\a\)', '\1-\2\u\1-\u\2', 'g')
+  else
+    return substitute(a:pat, '\a', '[\l&\u&]', 'g')
+  endif
+endfunction
+
+function! s:MatchingExactCase(filePat)
+  if &ignorecase
+    if &smartcase && a:filePat =~# '\u'
+      let matchingExactCase = 1
+    else
+      let matchingExactCase = 0
+    endif
+  else
+    if genutils#OnMS()
+      let matchingExactCase = 0
+    else
+      let matchingExactCase = 1
+    endif
+  endif
+  return matchingExactCase
 endfunction
 
 " Restore cpo.

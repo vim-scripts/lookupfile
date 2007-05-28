@@ -9,9 +9,11 @@ set cpo&vim
 if !exists('s:myBufNum')
   let s:windowName = '[Lookup File]'
   let s:myBufNum = -1
+  let s:popupIsHidden = 0
 endif
 let g:lookupfile#lastPattern = ""
 let g:lookupfile#lastResults = []
+let g:lookupfile#lastStatsMsg = []
 
 function! lookupfile#OpenWindow(bang, initPat)
   let origWinnr = winnr()
@@ -58,6 +60,15 @@ function! lookupfile#OpenWindow(bang, initPat)
     call setline('.', initPat)
   endif
   startinsert!
+  if !g:LookupFile_OnCursorMovedI
+    " This is a hack to bring up the popup immediately, while reopening the
+    " window, just for a better response.
+    aug LookupFileCursorHoldImm
+      au!
+      au CursorMovedI <buffer> nested exec 'doautocmd LookupFile CursorHoldI' |
+            \ au! LookupFileCursorHoldImm
+    aug END
+  endif
   call s:LookupFileSet()
   aug LookupFileReset
     au!
@@ -95,6 +106,8 @@ function! s:LookupFileSet()
   set backspace=start
   let s:_completeopt = &completeopt
   set completeopt+=menuone
+  let s:_updatetime = &updatetime
+  let &updatetime = g:LookupFile_UpdateTime
 endfunction
 
 function! s:LookupFileReset(force)
@@ -107,8 +120,18 @@ function! s:LookupFileReset(force)
   if exists('s:_backspace') && (a:force || (bufnr('%') != s:myBufNum))
     let &backspace = s:_backspace
     let &completeopt = s:_completeopt
-    unlet s:_backspace s:_completeopt
+    let &updatetime = s:_updatetime
+    unlet s:_backspace s:_completeopt s:_updatetime
   endif
+endfunction
+
+function! s:HidePopup()
+  let s:popupIsHidden = 1
+  return "\<C-E>"
+endfunction
+
+function! lookupfile#IsPopupHidden()
+  return s:popupIsHidden
 endfunction
 
 function! s:SetupBuf()
@@ -119,21 +142,30 @@ function! s:SetupBuf()
   setlocal winfixheight
   setlocal wrapmargin=0
   setlocal textwidth=0
+  setlocal completefunc=lookupfile#Complete
   syn clear
   set ft=lookupfile
   " Setup maps to open the file.
+  inoremap <silent> <buffer> <expr> <C-E> <SID>HidePopup()
   inoremap <silent> <buffer> <expr> <CR> <SID>AcceptFile(0, "\<CR>")
   inoremap <silent> <buffer> <expr> <C-O> <SID>AcceptFile(1, "\<C-O>")
   " This prevents the "Whole line completion" from getting triggered with <BS>,
   " however this might make the dropdown kind of flash.
   inoremap <buffer> <expr> <BS>       pumvisible()?"\<C-E>\<BS>":"\<BS>"
+  inoremap <buffer> <expr> <S-BS>       pumvisible()?"\<C-E>\<BS>":"\<BS>"
   " Make <C-Y> behave just like <CR>
-  imap     <buffer> <expr> <C-Y>      pumvisible()?"\<CR>":"\<C-Y>"
-  inoremap <buffer> <expr> <Esc>      pumvisible()?"\<C-E>\<C-C>":"\<Esc>"
-  inoremap <buffer> <expr> <silent> <Down> pumvisible()?"\<C-N>\<C-R>=(getline('.') == lookupfile#lastPattern)?\"\\<Lt>C-N>\":''\<CR>":"\<Down>"
-  inoremap <buffer> <expr> <silent> <Up>   pumvisible()?"\<C-P>\<C-R>=(getline('.') == lookupfile#lastPattern)?\"\\<Lt>C-P>\":''\<CR>":"\<Up>"
-  inoremap <buffer> <expr> <PageDown> pumvisible()?"\<PageDown>\<C-P>\<C-N>":"\<PageDown>"
-  inoremap <buffer> <expr> <PageUp>   pumvisible()?"\<PageUp>\<C-P>\<C-N>":"\<PageUp>"
+  imap     <buffer> <C-Y>      <CR>
+  if g:LookupFile_EscCancelsPopup
+    inoremap <buffer> <expr> <Esc>      pumvisible()?"\<C-E>\<C-C>":"\<Esc>"
+  endif
+  inoremap <buffer> <expr> <silent> <Down> <SID>GetCommand(1, 1, "\<C-N>",
+        \ "\"\\<Lt>C-N>\"")
+  inoremap <buffer> <expr> <silent> <Up> <SID>GetCommand(1, 1, "\<C-P>",
+        \ "\"\\<Lt>C-P>\"")
+  inoremap <buffer> <expr> <silent> <PageDown> <SID>GetCommand(1, 0,
+        \ "\<PageDown>", '')
+  inoremap <buffer> <expr> <silent> <PageUp> <SID>GetCommand(1, 0,
+        \ "\<PageUp>", '')
   nnoremap <silent> <buffer> o :OpenFile<CR>
   nnoremap <silent> <buffer> O :OpenFile!<CR>
   command! -buffer -nargs=0 -bang OpenFile
@@ -145,10 +177,22 @@ function! s:SetupBuf()
   aug LookupFile
     au!
     if g:LookupFile_ShowFiller
-      au CursorMovedI <buffer> call <SID>ShowFiller()
+      exec 'au' (g:LookupFile_OnCursorMovedI ? 'CursorMovedI' : 'CursorHoldI')
+            \ '<buffer> call <SID>ShowFiller()'
     endif
-    au CursorMovedI <buffer> call lookupfile#LookupFile(0)
+    exec 'au' (g:LookupFile_OnCursorMovedI ? 'CursorMovedI' : 'CursorHoldI')
+          \ '<buffer> call lookupfile#LookupFile(0)'
   aug END
+endfunction
+
+function! s:GetCommand(withPopupTrigger, withSkipPat, actCmd, innerCmd)
+  let cmd = ''
+  if a:withPopupTrigger && !pumvisible()
+    let cmd .= "\<C-X>\<C-U>"
+  endif
+  let cmd .= a:actCmd. "\<C-R>=(getline('.') == lookupfile#lastPattern) ? ".
+        \ a:innerCmd." : ''\<CR>"
+  return cmd
 endfunction
 
 function! s:AddPattern()
@@ -159,27 +203,26 @@ function! s:AddPattern()
 endfunction
 
 function! s:AcceptFile(splitWin, key)
-  if pumvisible()
-    let acceptCmd = ''
-    if type(g:LookupFile_LookupAcceptFunc) == 2 ||
-          \ (type(g:LookupFile_LookupAcceptFunc) == 1 &&
-          \  substitute(g:LookupFile_LookupAcceptFunc, '\s', '', 'g') != '')
-      let acceptCmd = call(g:LookupFile_LookupAcceptFunc, [a:splitWin, a:key])
-    else
-      let acceptCmd = lookupfile#AcceptFile(a:splitWin, a:key)
-    endif
-
-    return acceptCmd
-  else
+  if s:popupIsHidden
     return a:key
   endif
+  if !pumvisible()
+    call lookupfile#LookupFile(0, 1)
+  endif
+  let acceptCmd = ''
+  if type(g:LookupFile_LookupAcceptFunc) == 2 ||
+        \ (type(g:LookupFile_LookupAcceptFunc) == 1 &&
+        \  substitute(g:LookupFile_LookupAcceptFunc, '\s', '', 'g') != '')
+    let acceptCmd = call(g:LookupFile_LookupAcceptFunc, [a:splitWin, a:key])
+  else
+    let acceptCmd = lookupfile#AcceptFile(a:splitWin, a:key)
+  endif
+
+  return (!pumvisible() ? "\<C-X>\<C-U>" : '').acceptCmd
 endfunction
 
 function! s:IsValid(fileName)
-  if bufnr('%') != s:myBufNum
-    return 0
-  endif
-  if a:fileName == ''
+  if bufnr('%') != s:myBufNum || a:fileName == ''
     return 0
   endif
   if !filereadable(a:fileName) && !isdirectory(a:fileName)
@@ -187,10 +230,11 @@ function! s:IsValid(fileName)
       " Check if the parent directory exists, then we can create a new buffer
       " (Ido feature)
       let parent = fnamemodify(a:fileName, ':h')
-      if parent != '' && !isdirectory(parent)
-        return 0
+      if parent == '' || (parent != '' && !isdirectory(parent))
+        return 1
       endif
     endif
+    return 0
   endif
   return 1
 endfunction
@@ -244,10 +288,21 @@ function! s:OpenCurFile(splitWin)
       let splitOpen = 1
     endif
     " First try opening as a buffer, if it fails, we will open as a file.
+    exec BPBreak(1)
     try
-      exec (splitOpen?'s':'').'buffer' fileName
+      let bufnr = genutils#FindBufferForName(fileName)
+      if bufnr == -1
+        throw ''
+      endif
+      exec (splitOpen?'s':'').'buffer' bufnr
+    catch /^Vim\%((\a\+)\)\=:E325/
+      " Ignore, this anyway means the file was found.
     catch
-      exec (splitOpen?'split':'edit') fileName
+      try
+        exec (splitOpen?'split':'edit') fileName
+      catch /^Vim\%((\a\+)\)\=:E325/
+        " Ignore, this anyway means the file was found.
+      endtry
     endtry
   endif
 endfunction
@@ -256,15 +311,34 @@ function! s:ShowFiller()
   return lookupfile#LookupFile(1)
 endfunction
 
-function! lookupfile#LookupFile(showingFiller)
-  let pattern = getline('.')
-  if pattern == "" || (pattern ==# g:lookupfile#lastPattern && pumvisible())
-    return ""
+function! lookupfile#Complete(findstart, base)
+  if a:findstart
+    return 0
+  else
+    call lookupfile#LookupFile(0, 1, a:base)
+    return g:lookupfile#lastStatsMsg+g:lookupfile#lastResults
   endif
-  " The normal completion behavior is to stop completion when cursor is moved.
-  if col('.') == 1 || (col('.') != col('$'))
-    return ""
+endfunction
+
+function! lookupfile#LookupFile(showingFiller, ...)
+  let generateMode = (a:0 == 0 ? 0 : a:1)
+  if generateMode
+    let pattern = (a:0 > 1) ? a:2 : getline('.')
+  else
+    let pattern = getline('.')
+    " The normal completion behavior is to stop completion when cursor is moved.
+    if col('.') == 1 || (col('.') != col('$'))
+      return ''
+    endif
   endif
+  if pattern == '' || (pattern ==# g:lookupfile#lastPattern && pumvisible())
+    return ''
+  endif
+
+  if s:popupIsHidden && g:lookupfile#lastPattern ==# pattern
+    return ''
+  endif
+  let s:popupIsHidden = 0
 
   let statusMsg = ''
   if strlen(pattern) < g:LookupFile_MinPatLength
@@ -289,16 +363,25 @@ function! lookupfile#LookupFile(showingFiller)
       let _tags = &tags
       try
         let &tags = eval(g:LookupFile_TagExpr)
-        let tags = taglist(pattern)
+        let taglist = taglist(pattern)
       catch
         echohl ErrorMsg | echo "Exception: " . v:exception | echohl NONE
-        return ""
+        return ''
       finally
         let &tags = _tags
       endtry
 
       " Show the matches for what is typed so far.
-      let files = map(tags, 'v:val["filename"]')
+      if g:LookupFile_UsingSpecializedTags
+        let files = map(taglist, '{'.
+              \ '"word": fnamemodify(v:val["filename"], ":p"), '.
+              \ '"abbr": v:val["name"], '.
+              \ '"menu": fnamemodify(v:val["filename"], ":h"), '.
+              \ '"dup": 1, '.
+              \ '}')
+      else
+        let files = map(taglist, 'fnamemodify(v:val["filename"], ":p")')
+      endif
     endif
 
     let pat = g:LookupFile_FileFilter
@@ -306,7 +389,15 @@ function! lookupfile#LookupFile(showingFiller)
       call filter(files, '(type(v:val) == 4) ? v:val["word"] !~ pat : v:val !~ pat')
     endif
 
-    call sort(files)
+    if g:LookupFile_SortMethod ==# 'alpha'
+      " When UsingSpecializedTags, sort by the actual name (Timothy, Guo
+      " (firemeteor dot guo at gmail dot com)).
+      if type(get(files, 0)) == 4
+        call sort(files, "s:CmpByName")
+      else
+        call sort(files)
+      endif
+    endif
     let g:lookupfile#lastPattern = pattern
     let g:lookupfile#lastResults = files
   endif
@@ -323,9 +414,19 @@ function! lookupfile#LookupFile(showingFiller)
   "if col('.') != col('$')
   "  let pattern = strpart(pattern, 0, col('.')-1)
   "endif
-  call complete(1, [{'word': pattern, 'abbr': abbr, 'menu': statusMsg}]+files)
-  return ""
+  let msgLine = [{'word': pattern, 'abbr': abbr, 'menu': statusMsg}]
+  let g:lookupfile#lastStatsMsg = msgLine
+  if !generateMode
+    call complete(1, msgLine+files)
+  endif
+  return ''
 endfunction
+
+func! s:CmpByName(i1, i2)
+  let ileft = a:i1["abbr"]
+  let iright = a:i2["abbr"]
+  return ileft == iright ? 0 : ileft > iright ? 1 : -1
+endfunc
 
 " Restore cpo.
 let &cpo = s:save_cpo
