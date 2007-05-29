@@ -288,7 +288,6 @@ function! s:OpenCurFile(splitWin)
       let splitOpen = 1
     endif
     " First try opening as a buffer, if it fails, we will open as a file.
-    exec BPBreak(1)
     try
       let bufnr = genutils#FindBufferForName(fileName)
       if bufnr == -1

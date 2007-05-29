@@ -586,6 +586,10 @@ a map such that pressing <Esc> twice in succession will close the window: >
 
                                             *lookupfile-changes*
 
+                                            *lookupfile-changes-1.7*
+- Bug fix: LUPath and LUArgs were broken (stoning at gmail dot com).
+- Removed debugging code.
+
                                             *lookupfile-changes-1.6*
                                             *lookupfile-changes-1.5*
 - LookupFile now uses CursorHoldI instead of CursorMovedI to show matches. This

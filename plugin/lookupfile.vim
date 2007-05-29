@@ -1,9 +1,9 @@
 " lookupfile.vim: Lookup filenames by pattern
 " Author: Hari Krishna (hari_vim at yahoo dot com)
-" Last Change: 28-May-2007 @ 19:52
+" Last Change: 29-May-2007 @ 09:44
 " Created:     11-May-2006
 " Requires:    Vim-7.1, genutils.vim(2.3)
-" Version:     1.6.5
+" Version:     1.7.1
 " Licence: This program is free software; you can redistribute it and/or
 "          modify it under the terms of the GNU General Public License.
 "          See http://www.gnu.org/copyleft/gpl.txt 
@@ -27,7 +27,7 @@ if !exists('loaded_genutils') || loaded_genutils < 203
   finish
 endif
 
-let g:loaded_lookupfile = 106
+let g:loaded_lookupfile = 107
 
 " Make sure line-continuations won't cause any problem. This will be restored
 "   at the end
@@ -256,7 +256,7 @@ function! s:LookupPath(pattern)
         \ '{'.
         \ ' "word": v:val,'.
         \ ' "abbr": fnamemodify(v:val, ":t"), '.
-        \ ' "menu": fnamemodify(v:val, ":h")'.
+        \ ' "menu": fnamemodify(v:val, ":h"), '.
         \ ' "dup": 1'.
         \ '}')
 endfunction
@@ -266,7 +266,7 @@ function! s:LookupArgs(pattern)
         \ '{'.
         \ ' "word":fnamemodify(v:val, ":p"), '.
         \ ' "abbr": v:val, '.
-        \ ' "menu": substitute(v:val, a:pattern, "[&]", "")'.
+        \ ' "menu": substitute(v:val, a:pattern, "[&]", ""), '.
         \ ' "dup": 1'.
         \ '}')
 endfunction
