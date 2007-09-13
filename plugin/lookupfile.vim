@@ -1,9 +1,9 @@
 " lookupfile.vim: Lookup filenames by pattern
-" Author: Hari Krishna (hari_vim at yahoo dot com)
-" Last Change: 29-May-2007 @ 09:44
+" Author: Hari Krishna Dara (hari.vim at gmail dot com)
+" Last Change: 14-Jun-2007 @ 18:30
 " Created:     11-May-2006
 " Requires:    Vim-7.1, genutils.vim(2.3)
-" Version:     1.7.1
+" Version:     1.8.0
 " Licence: This program is free software; you can redistribute it and/or
 "          modify it under the terms of the GNU General Public License.
 "          See http://www.gnu.org/copyleft/gpl.txt 
@@ -27,7 +27,7 @@ if !exists('loaded_genutils') || loaded_genutils < 203
   finish
 endif
 
-let g:loaded_lookupfile = 107
+let g:loaded_lookupfile = 108
 
 " Make sure line-continuations won't cause any problem. This will be restored
 "   at the end
@@ -102,6 +102,10 @@ if !exists('g:LookupFile_DefaultCmd')
   let g:LookupFile_DefaultCmd = ':LUTags'
 endif
 
+if !exists('g:LookupFile_EnableRemapCmd')
+  let g:LookupFile_EnableRemapCmd = 1
+endif
+
 if !exists('g:LookupFile_DisableDefaultMap')
   let g:LookupFile_DisableDefaultMap = 0
 endif
@@ -116,6 +120,18 @@ endif
 
 if !exists('g:LookupFile_EscCancelsPopup')
   let g:LookupFile_EscCancelsPopup = 1
+endif
+
+if !exists('g:LookupFile_SearchForBufsInTabs')
+  let g:LookupFile_SearchForBufsInTabs = 1
+endif
+
+if !exists('g:LookupFile_TagsExpandCamelCase')
+  let g:LookupFile_TagsExpandCamelCase = 1
+endif
+
+if !exists('g:LookupFile_RecentFileListSize')
+  let g:LookupFile_RecentFileListSize = 20
 endif
 
 if (! exists("no_plugin_maps") || ! no_plugin_maps) &&
@@ -138,7 +154,7 @@ command! -nargs=? -bang -complete=file LookupFile :call
       \ <SID>LookupUsing('lookupfile', "<bang>", <q-args>, 0)
 
 command! -nargs=? -bang -complete=tag LUTags :call
-      \ <SID>LookupUsing('lookupfile', "<bang>", <q-args>, 0)
+      \ <SID>LookupUsing('Tags', "<bang>", <q-args>, 0)
 command! -nargs=? -bang -complete=file LUPath :call
       \ <SID>LookupUsing('Path', "<bang>", <q-args>, g:LookupFile_MinPatLength)
 command! -nargs=? -bang -complete=file LUArgs :call
@@ -166,7 +182,7 @@ endfun
 let s:baseBufNr = 0
 function! s:LookupUsing(ftr, bang, initPat, minPatLen)
   let cmd = ':LUTags'
-  if a:ftr != 'lookupfile'
+  if a:ftr != 'Tags'
     call s:SaveSett('LookupFunc')
     call s:SaveSett('LookupNotifyFunc')
     call s:SaveSett('MinPatLength')
@@ -177,7 +193,9 @@ function! s:LookupUsing(ftr, bang, initPat, minPatLen)
     let s:baseBufNr = bufnr('%')
     let cmd = ':LU'.a:ftr
   endif
-  call s:RemapLookupFile(cmd)
+  if g:LookupFile_EnableRemapCmd
+    call s:RemapLookupFile(cmd)
+  endif
   call lookupfile#OpenWindow(a:bang, a:initPat)
 
   if exists('*s:Config'.a:ftr)

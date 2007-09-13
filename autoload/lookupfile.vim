@@ -14,6 +14,7 @@ endif
 let g:lookupfile#lastPattern = ""
 let g:lookupfile#lastResults = []
 let g:lookupfile#lastStatsMsg = []
+let g:lookupfile#recentFiles = []
 
 function! lookupfile#OpenWindow(bang, initPat)
   let origWinnr = winnr()
@@ -250,6 +251,7 @@ function! lookupfile#AcceptFile(splitWin, key)
         \ "\<CR>"
   if getline('.') ==# g:lookupfile#lastPattern
     if len(g:lookupfile#lastResults) == 0
+      " FIXME: shouldn't this be an error?
       let acceptCmd = acceptCmd
     elseif len(g:lookupfile#lastResults) == 1 || g:LookupFile_AlwaysAcceptFirst
       " If there is only one file, we will also select it (if not already
@@ -279,7 +281,29 @@ function! s:OpenCurFile(splitWin)
   endif
   call lookupfile#CloseWindow()
 
-  let winnr = bufwinnr(genutils#FindBufferForName(fileName))
+  " Update the recent files list.
+  if g:LookupFile_RecentFileListSize > 0
+    let curPos = index(g:lookupfile#recentFiles, fileName)
+    call add(g:lookupfile#recentFiles, fileName)
+    if curPos != -1
+      call remove(g:lookupfile#recentFiles, curPos)
+    elseif len(g:lookupfile#recentFiles) > g:LookupFile_RecentFileListSize
+      let g:lookupfile#recentFiles = g:lookupfile#recentFiles[
+            \ -g:LookupFile_RecentFileListSize :]
+    endif
+  endif
+
+  let bufnr = genutils#FindBufferForName(fileName)
+  let winnr = bufwinnr(bufnr)
+  if winnr == -1 && g:LookupFile_SearchForBufsInTabs
+      for i in range(tabpagenr('$'))
+        if index(tabpagebuflist(i+1), bufnr) != -1
+          " Switch to the tab and set winnr.
+          exec 'tabnext' (i+1)
+          let winnr = bufwinnr(bufnr)
+        endif
+    endfor
+  endif
   if winnr != -1
     exec winnr.'wincmd w'
   else
@@ -289,7 +313,6 @@ function! s:OpenCurFile(splitWin)
     endif
     " First try opening as a buffer, if it fails, we will open as a file.
     try
-      let bufnr = genutils#FindBufferForName(fileName)
       if bufnr == -1
         throw ''
       endif
@@ -340,7 +363,15 @@ function! lookupfile#LookupFile(showingFiller, ...)
   let s:popupIsHidden = 0
 
   let statusMsg = ''
-  if strlen(pattern) < g:LookupFile_MinPatLength
+  if pattern == ' '
+    if len(g:lookupfile#recentFiles) == 0
+      let statusMsg = '<<< No recent files >>>'
+      let files = []
+    else
+      let statusMsg = '<<< Showing '.len(g:lookupfile#recentFiles).' recent files >>>'
+      let files = reverse(copy(g:lookupfile#recentFiles))
+    endif
+  elseif strlen(pattern) < g:LookupFile_MinPatLength
     let statusMsg = '<<< Type at least '.g:LookupFile_MinPatLength.
           \ ' characters >>>'
     let files = []
@@ -362,7 +393,8 @@ function! lookupfile#LookupFile(showingFiller, ...)
       let _tags = &tags
       try
         let &tags = eval(g:LookupFile_TagExpr)
-        let taglist = taglist(pattern)
+        let taglist = taglist(g:LookupFile_TagsExpandCamelCase ?
+              \ lookupfile#ExpandCamelCase(pattern) : pattern)
       catch
         echohl ErrorMsg | echo "Exception: " . v:exception | echohl NONE
         return ''
@@ -407,13 +439,7 @@ function! lookupfile#LookupFile(showingFiller, ...)
       let statusMsg = '<<< None Matching >>>'
     endif
   endif
-  let abbr = pattern
-  " NOTE: The following is not applicable anymore, as we don't support showing
-  " completion menu when not in the middle of the pattern.
-  "if col('.') != col('$')
-  "  let pattern = strpart(pattern, 0, col('.')-1)
-  "endif
-  let msgLine = [{'word': pattern, 'abbr': abbr, 'menu': statusMsg}]
+  let msgLine = [{'word': pattern, 'abbr': statusMsg, 'menu': pattern}]
   let g:lookupfile#lastStatsMsg = msgLine
   if !generateMode
     call complete(1, msgLine+files)
@@ -421,7 +447,19 @@ function! lookupfile#LookupFile(showingFiller, ...)
   return ''
 endfunction
 
-func! s:CmpByName(i1, i2)
+function! lookupfile#ExpandCamelCase(str)
+  let pat = a:str
+  " Check if there are at least two consecutive uppercase letters to turn on
+  " the CamelCase expansion.
+  if match(a:str, '\u\u') != -1
+    let pat = '\C'.substitute(a:str, '\u\+',
+          \ '\=substitute(submatch(0), ".", '."'".'&\\U*'."'".', "g")', 'g')
+    let @*=pat
+  endif
+  return pat
+endfunction
+
+function! s:CmpByName(i1, i2)
   let ileft = a:i1["abbr"]
   let iright = a:i2["abbr"]
   return ileft == iright ? 0 : ileft > iright ? 1 : -1

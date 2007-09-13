@@ -1,9 +1,7 @@
 *lookupfile.txt* Lookup files using Vim7 ins-completion
                     Requires Vim 7.0
-            Last Change: 22-Oct-2006 @ 17:48
-               Revision: 1.3.0
-         Plugin Version: 1.6
-                 Author: Hari Krishna Dara (hari_vim at yahoo dot com)
+            Last Change: 24-Aug-2007 @ 18:25
+                 Author: Hari Krishna Dara (hari.vim at gmail dot com)
 
                                             *lookupfile-introduction*
                                             *lookupfile-plugin*
@@ -81,10 +79,11 @@ The <Plug>LookupFile mapping is mapped to the :LookupFile command, which always
 assumes the last :LU command you use. This means, after using |:LUWalk|,
 pressing <F5> would result in executing the :LUWalk command until you type
 another command. Take a look at the |LookupFile_DefaultCmd| to specify the
-initial command that this map should get assigned to. If you want a map to
-always execute a specific command, you can create additional maps. E.g., if you
-want <F7> to always execute :LUTags, irrespective of what command you last
-used, then you can define something like:
+initial command that this map should get assigned to and
+|LookupFile_EnableRemapCmd| to disable this behavior. If you want a map to
+always execute a specific command, you can also create additional maps. E.g.,
+if you want <F7> to always execute :LUTags, irrespective of what command you
+last used, then you can define something like:
 >
         nnoremap <silent> <F7> :LUTags<CR>
 <
@@ -103,8 +102,8 @@ press <Esc> and scroll back to previous filenames to press o or O (or use
 respectively.
 
 If you want to quickly close the [Lookup File] window without making a file
-selection, you can press the same key that you assigned to open the plugin to
-cancel the completion menu and close the window.
+selection, you can press the same key that you assigned to open the plugin, to
+also cancel the completion menu and close the window.
 
 Note that this works only when you use the <Plug> mapping to create a mapping
 (see |lookupfile-map|), not when you assign a mapping directly while disablign
@@ -227,6 +226,11 @@ name to have only the directories shown in the results.
 To accept the first entry in the matches, you can simply press <CR> or <C-O>,
 and if the entry happens to be a directory, new matches will be shown for that
 directory.
+
+                                            *lookupfile-recent-files*
+The plugin saves a list of most recently opened files using any of the above
+commands. To trigger showing this list, simply use a space by itself. For more
+details, see |LookupFile_RecentFileListSize|.
 ==============================================================================
 
                                             *lookupfile-maps*
@@ -290,11 +294,21 @@ you fine tune the g:LookupFile_TagExpr setting, as per |lookupfile-tags|.
   Ex: >
         let g:LookupFile_DefaultCmd = ':LUWalk'
 <
+                                            *LookupFile_EnableRemapCmd*
+- When this is set (the default), the :LookupFile command takes the form of
+  the last command that is used. Disabling this while setting
+  |LookupFile_DefaultCmd| allows you to configure a custom command as the
+  command to run when you press the <Plug>LookupFile mapping. See
+  |LookupFile-command| for more details.
+
                                             *LookupFile_DisableDefaultMap*
 - Setting this flag turns off the default maps created by the plugin such that
   the user has full control on what maps to what command. >
         let g:LookupFile_DisableDefaultMap = 1
 <
+NOTE: setting this doesn't prevent the <Plug> mapping from created, try
+setting no_lookupfile_maps or no_plugin_maps for this (see |usr_41.txt|).
+
                                             *LookupFile_TagExpr*
 - Use g:LookupFile_TagExpr to use custom tagfiles. A valid Vim expression
   resulting in a String should be used, which means "eval(g:LookupFile_TagExpr)"
@@ -347,9 +361,9 @@ you fine tune the g:LookupFile_TagExpr setting, as per |lookupfile-tags|.
                                             *LookupFile_AlwaysAcceptFirst*
 - Normally when <CR> or <C-O> is pressed while the popup is visible, the first
   item in the list is selected, unless there is exactly only one item matching.
-  This means, if you want to select the first item, you have press it twice. You
-  can change this behavior to always accept the first item by setting
-  g:LookupFile_AlwaysAcceptFirst (like ido.el).
+  This means, if you want to select the first item, you have to press it
+  twice. You can change this behavior to always accept the first item by
+  setting g:LookupFile_AlwaysAcceptFirst (like ido.el).
                                             *LookupFile_FileFilter*
 - Use the g:LookupFile_FileFilter to specify a Vim regular expression pattern
   that, when matched against the filename (or path, depending on the mode)
@@ -415,6 +429,46 @@ you fine tune the g:LookupFile_TagExpr setting, as per |lookupfile-tags|.
 
         let g:LookupFile_EscCancelsPopup = 0
 <
+                                            *LookupFile_SearchForBufsInTabs*
+- Normally, when you seleclt a file that is already visible in a window,
+  LookupFile simply makes that window the current window instead of opening
+  the file again. Setting this flag will make LookupFile also search in other
+  tabs for a window that already has this file visible, and switch to that tab
+  to set the focus. This setting is most useful with the |LUBufs| command. >
+
+        let g:LookupFile_SearchForBufsInTabs = 1
+<
+                                            *LookupFile_TagsExpandCamelCase*
+- When this setting is enabled (the default), typing consecutive upper case
+  letters are treated as abbreviations for type names that follow the
+  CamelCase naming pattern (like all the java class names are) and the pattern
+  is translated automatically. This is modelled after the "Open Type" dialog
+  in eclipse and works only for the tag lookup (|LUTags| command). To disable
+  this feature, set it to 0 >
+
+        let g:LookupFile_TagsExpandCamelCase = 0
+<
+  Ex:
+    - To match the filename VimTheSupremeEditor.txt, you could enter the pattern
+      in several variations such as: >
+        VTSE
+        VTSEditor
+        VTSEdi.*
+        VTS.*
+        VTheSE
+<
+NOTE: While using the CamelCase expansion, 'ignorecase' is disabled so
+something like "VTSEDi.*" will not match "VimTheSupremeEditor", but will match
+"VimTheSupremeEditorDictator", if it exists.
+                                            *LookupFile_RecentFileListSize*
+This setting allows you to control the number of most recently used filenames
+that should be rememberd by the plugin. The default size is 20, but it can be
+set to 0 to not remember any and any -ve value to remember all. The list is
+not persisted across Vim sessions. >
+
+        let g:LookupFile_RecentFileListSize = 30
+<
+See also, |lookupfile-recent-files|.
 ==============================================================================
 
                                             *lookupfile-extend*
@@ -578,13 +632,27 @@ a map such that pressing <Esc> twice in succession will close the window: >
 - Allow on the fly filtering of the filenames by prompting the user for a
   pattern to match (or not match) against the whole filename.
 - Option to sort filenames by their extension, or by MRU.
-- "ReuseExisting" option to switch to an existing window (possibly switching to
-  the right tab). This works like "find window in all the tabs".
 - Save and restore matching results, for patterns that take a long time to build
   (especially those that involve "**").
+- Option to have separate window/buffers for each type of command (Timothy,
+  Guo)
 ==============================================================================
 
                                             *lookupfile-changes*
+
+                                            *lookupfile-changes-1.8*
+- New settings |LookupFile_EnableRemapCmd|, |LookupFile_SearchForBufsInTabs|,
+  |LookupFile_TagsExpandCamelCase|, |Lookupfile_RecentFileListSize|.
+- Even more control on the mappings with the new setting
+  |LookupFile_EnableRemapCmd|.
+- New feature to specify names that follow CamelCasing pattern by abbreviating
+  them. This works more or less like for the "Open Type" dialog in Eclipse.
+  For more information see, |LookupFile_TagsExpandCamelCase|.
+- New feature to remember the recent files, see
+  |Lookupfile_RecentFileListSize|.
+- Changed the message line such that the message is shown on the left side and
+  the pattern is shown on the right side. This prevents the more important
+  message from getting lost when the filenames are too long.
 
                                             *lookupfile-changes-1.7*
 - Bug fix: LUPath and LUArgs were broken (stoning at gmail dot com).
