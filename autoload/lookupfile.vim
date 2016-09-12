@@ -21,6 +21,11 @@ function! lookupfile#OpenWindow(bang, initPat)
   let _isf = &isfname
   let _splitbelow = &splitbelow
   set nosplitbelow
+  
+  if !bufexists(s:myBufNum)
+      let s:myBufNum = -1
+  endif
+  
   try
     if s:myBufNum == -1
       " Temporarily modify isfname to avoid treating the name as a pattern.
